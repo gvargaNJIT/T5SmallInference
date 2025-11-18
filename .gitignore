@@ -1,0 +1,17 @@
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.out
+/build/
+/bin/
+/CMakeFiles/
+/Makefile
+/*.cmake
+/tests/
+*.log
+*.tmp
+*.swp
+**/test_*
+/weights/
