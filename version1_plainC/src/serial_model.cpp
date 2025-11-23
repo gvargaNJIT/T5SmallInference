@@ -1,3 +1,4 @@
+/*
 #include "serial_model.hpp"
 #include "matrix_ops.hpp"
 #include <iostream>
@@ -29,7 +30,6 @@ void T5Model::load_weights(const std::string& weights_dir) {
     encoder_->load_weights(weights, "encoder");
     decoder_->load_weights(weights, "decoder");
     std::cout << "\nModel loaded successfully!\n";
-    std::cout << "Total parameters: " << count_parameters() << "\n";
 }
 
 void T5Model::forward(
@@ -62,10 +62,25 @@ std::vector<int> T5Model::generate(
     std::cout << "Generating with greedy decoding...\n";
     Tensor encoder_output;
     encoder_->forward(input_ids, encoder_output);
+    
+    // DEBUG: Check encoder output
+    std::cout << "DEBUG: Encoder output shape: [";
+    for (size_t i = 0; i < encoder_output.shape().size(); i++) {
+        std::cout << encoder_output.shape()[i];
+        if (i < encoder_output.shape().size() - 1) std::cout << ", ";
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "DEBUG: First 5 encoder values: ";
+    for (int i = 0; i < 5; i++) {
+        std::cout << encoder_output[i] << " ";
+    }
+    std::cout << std::endl;
+    
     std::vector<int> generated_ids = {config_.pad_token_id};
     for (size_t step = 0; step < max_length; step++) {
         Tensor decoder_output;
         decoder_->forward(generated_ids, decoder_output, &encoder_output);
+        
         size_t seq_len = decoder_output.shape()[0];
         size_t d_model = decoder_output.shape()[1];
         size_t vocab_size = lm_head_weight_.shape()[0];
@@ -79,7 +94,31 @@ std::vector<int> T5Model::generate(
             d_model,
             vocab_size
         );
+        
         const float* last_logits = logits.data() + (seq_len - 1) * vocab_size;
+        
+        // DEBUG: Print logits for first step
+        if (step == 0) {
+            std::cout << "\nDEBUG: First 10 logits at step 0: ";
+            for (int i = 0; i < 10; i++) {
+                std::cout << last_logits[i] << " ";
+            }
+            std::cout << std::endl;
+            
+            // Find top 5 tokens
+            std::vector<std::pair<int, float>> top_tokens;
+            for (size_t v = 0; v < vocab_size; v++) {
+                top_tokens.push_back({v, last_logits[v]});
+            }
+            std::sort(top_tokens.begin(), top_tokens.end(), 
+                     [](const auto& a, const auto& b) { return a.second > b.second; });
+            
+            std::cout << "DEBUG: Top 5 tokens at step 0:" << std::endl;
+            for (int i = 0; i < 5; i++) {
+                std::cout << "  Token " << top_tokens[i].first << ": " << top_tokens[i].second << std::endl;
+            }
+        }
+        
         int next_token = 0;
         float max_logit = last_logits[0];
         for (size_t v = 1; v < vocab_size; v++) {
@@ -88,6 +127,7 @@ std::vector<int> T5Model::generate(
                 next_token = v;
             }
         }
+        
         if (next_token == config_.eos_token_id) {
             break;
         }
@@ -100,10 +140,6 @@ std::vector<int> T5Model::generate(
     return generated_ids;
 }
 
-size_t T5Model::count_parameters() const {
-    size_t total = 0;
-    total += shared_embedding_->weight().size();
-    return total;
 }
 }
-}
+*/

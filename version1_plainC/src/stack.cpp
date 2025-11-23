@@ -1,3 +1,4 @@
+/*
 #include "stack.hpp"
 #include <iostream>
 
@@ -29,12 +30,40 @@ void T5Stack::forward(
 ) {
     Tensor hidden_states;
     embedding_->forward(input_ids, hidden_states);
+    
+    // DEBUG
+    if (is_decoder_) {
+        std::cout << "DEBUG: Decoder embedding output, first 5 values: ";
+        for (int i = 0; i < 5; i++) {
+            std::cout << hidden_states[i] << " ";
+        }
+        std::cout << std::endl;
+    }
+    
     for (size_t i = 0; i < blocks_.size(); i++) {
         Tensor block_output;
         blocks_[i]->forward(hidden_states, block_output, encoder_hidden_states);
         hidden_states = block_output;
+        
+        // DEBUG: Check after each block
+        if (is_decoder_ && i == 0) {
+            std::cout << "DEBUG: After decoder block 0, first 5 values: ";
+            for (int j = 0; j < 5; j++) {
+                std::cout << hidden_states[j] << " ";
+            }
+            std::cout << std::endl;
+        }
     }
     final_layer_norm_->forward(hidden_states, output);
+    
+    // DEBUG
+    if (is_decoder_) {
+        std::cout << "DEBUG: Final decoder output, first 5 values: ";
+        for (int i = 0; i < 5; i++) {
+            std::cout << output[i] << " ";
+        }
+        std::cout << std::endl;
+    }
 }
 
 void T5Stack::load_weights(
@@ -47,10 +76,11 @@ void T5Stack::load_weights(
         blocks_[i]->load_weights(weights, block_prefix);
     }
 
-    std::string final_ln_key = prefix + ".final.layer.norm.weight";
+    std::string final_ln_key = prefix + ".final_layer_norm.weight";
     if (weights.find(final_ln_key) != weights.end()) {
         final_layer_norm_->set_weight(weights.at(final_ln_key));
     }
 }
 }
 }
+*/

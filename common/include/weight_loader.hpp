@@ -1,30 +1,20 @@
-#ifndef T5_WEIGHT_LOADER_HPP
-#define T5_WEIGHT_LOADER_HPP
+#ifndef WEIGHT_LOADER_HPP
+#define WEIGHT_LOADER_HPP
 
+#include "model.hpp"
 #include "tensor.hpp"
+#include <fstream>
+#include <iostream>
 #include <string>
-#include <unordered_map>
-
-namespace t5 {
 
 class WeightLoader {
 public:
-    static std::unordered_map<std::string, Tensor> load_weights(
-        const std::string& weights_dir
-    );
+    static bool load_weights(T5Model &model, const std::string &filename);
 
-    static void print_weight_info(
-        const std::unordered_map<std::string, Tensor>& weights
-    );
-    
 private:
-    static Tensor load_single_weight(
-        const std::string& bin_file,
-        const std::string& shape_file
-    );
-
-    static std::vector<size_t> parse_shape_file(const std::string& shape_file);
+    static void load_tensor(std::ifstream &file, Tensor &tensor);
+    static void load_linear(std::ifstream &file, Linear &linear);
+    static void load_block(std::ifstream &file, T5Block &block);
 };
 
-}
-#endif
+#endif 

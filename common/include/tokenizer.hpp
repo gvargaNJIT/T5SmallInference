@@ -1,35 +1,24 @@
-#ifndef T5_TOKENIZER_HPP
-#define T5_TOKENIZER_HPP
+#ifndef TOKENIZER_HPP
+#define TOKENIZER_HPP
 
+#include <sentencepiece_processor.h>
 #include <string>
 #include <vector>
-#include <sentencepiece_processor.h>
+#include <stdexcept>
 
-namespace t5 {
-
-class Tokenizer {
-public:
-    Tokenizer() : pad_id_(0), eos_id_(1), unk_id_(2) {}
-
-    bool load_vocab(const std::string& spm_path);
-
-    std::vector<int> encode(const std::string& text);
-
-    std::string decode(const std::vector<int>& ids);
-
-    int pad_token_id() const { return pad_id_; }
-    int eos_token_id() const { return eos_id_; }
-    int unk_token_id() const { return unk_id_; }
-
-    size_t vocab_size() const { return sp_.GetPieceSize(); }
-
+class SPTokenizer {
 private:
-    sentencepiece::SentencePieceProcessor sp_;
+    sentencepiece::SentencePieceProcessor sp;
+    int pad_id;
+    int eos_id;
 
-    int pad_id_;
-    int eos_id_;
-    int unk_id_;
+public:
+    SPTokenizer(const std::string &model_path);
+    std::vector<int> encode(const std::string &text, bool add_eos = true);
+    std::string decode(const std::vector<int> &ids);
+    int get_pad_id() const;
+    int get_eos_id() const;
 };
 
-}
 #endif
+

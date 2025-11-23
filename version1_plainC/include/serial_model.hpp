@@ -1,3 +1,4 @@
+/*
 #ifndef SERIAL_MODEL_HPP
 #define SERIAL_MODEL_HPP
 
@@ -38,3 +39,4 @@ private:
 }
 
 #endif
+*/
