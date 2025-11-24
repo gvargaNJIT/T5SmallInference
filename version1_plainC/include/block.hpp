@@ -1,3 +1,4 @@
+/*
 #ifndef BLOCK_HPP
 #define BLOCK_HPP
 
@@ -6,6 +7,8 @@
 #include "layer_norm.hpp"
 #include "feedforward.hpp"
 #include "attention.hpp"
+#include <unordered_map>
+#include <string>
 
 namespace t5 {
 namespace serial {
@@ -23,6 +26,8 @@ public:
         const std::unordered_map<std::string, Tensor>& weights,
         const std::string& prefix
     );
+
+    Attention* get_self_attention() { return self_attention_.get(); }
     
 private:
     bool is_decoder_;
@@ -38,3 +43,4 @@ private:
 }
 
 #endif
+*/

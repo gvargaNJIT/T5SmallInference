@@ -1,146 +1,65 @@
 #include "weight_loader.hpp"
-#include <fstream>
-#include <iostream>
-#include <sstream>
-#include <cstdint>
-#include <cstring>
-#include <dirent.h>
-#include <algorithm>
-#include <cctype>
 
-namespace t5 {
-
-std::vector<size_t> WeightLoader::parse_shape_file(const std::string& shape_file) {
-    std::ifstream file(shape_file);
+bool WeightLoader::load_weights(T5Model &model, const std::string &filename) {
+    std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
-        std::cerr << "Error: Cannot open shape file: " << shape_file << std::endl;
-        return {};
+        std::cerr << "Failed to open file for reading: " << filename << std::endl;
+        return false;
     }
-    
-    std::vector<size_t> shape;
-    std::string line;
-    std::getline(file, line);
-    line.erase(remove_if(line.begin(), line.end(), ::isspace), line.end());
-    line.erase(remove(line.begin(), line.end(), '('), line.end());
-    line.erase(remove(line.begin(), line.end(), ')'), line.end());
-    line.erase(remove(line.begin(), line.end(), '['), line.end());
-    line.erase(remove(line.begin(), line.end(), ']'), line.end());
-    
-    if (line.empty()) {
-        std::cerr << "Error: Empty shape file: " << shape_file << std::endl;
-        return {};
+    load_tensor(file, model.encoder.embed.weight);
+    for (auto &block : model.encoder.blocks) {
+        load_block(file, block);
     }
-    std::stringstream ss(line);
-    std::string value;
-    while (std::getline(ss, value, ',')) {
-        value.erase(remove_if(value.begin(), value.end(), ::isspace), value.end());
-        if (!value.empty() && std::isdigit(value[0])) {
-            try {
-                shape.push_back(std::stoul(value));
-            } catch (const std::exception& e) {
-                std::cerr << "Error parsing shape value '" << value 
-                          << "' in file " << shape_file << std::endl;
-                return {};
-            }
-        }
+    load_tensor(file, model.encoder.final_layer_norm.weight);
+    for (auto &block : model.decoder.blocks) {
+        load_block(file, block);
     }
-    
-    return shape;
+    load_tensor(file, model.decoder.final_layer_norm.weight);
+    model.decoder.embed.weight = model.encoder.embed.weight;
+    model.lm_head.weight       = model.encoder.embed.weight;
+    file.close();
+    return true;
 }
 
-Tensor WeightLoader::load_single_weight(const std::string& bin_file,const std::string& shape_file) {
-    auto shape = parse_shape_file(shape_file);
-    if (shape.empty()) {
-        std::cerr << "Error: Invalid shape for " << bin_file << std::endl;
-        return Tensor();
-    }
-    Tensor tensor(shape);
-    std::ifstream file(bin_file, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Error: Cannot open " << bin_file << std::endl;
-        return Tensor();
-    }
-
-    file.read(reinterpret_cast<char*>(tensor.data()), tensor.size() * sizeof(float));
-    return tensor;
+void WeightLoader::load_tensor(std::ifstream &file, Tensor &tensor) {
+    int ndim;
+    file.read(reinterpret_cast<char *>(&ndim), sizeof(int));
+    std::vector<int> shape(ndim);
+    file.read(reinterpret_cast<char *>(shape.data()), ndim * sizeof(int));
+    int size;
+    file.read(reinterpret_cast<char *>(&size), sizeof(int));
+    std::vector<float> data(size);
+    file.read(reinterpret_cast<char *>(data.data()), size * sizeof(float));
+    tensor.shape = std::move(shape);
+    tensor.data  = std::move(data);
 }
 
-std::unordered_map<std::string, Tensor> WeightLoader::load_weights(const std::string& weights_dir) {
-    std::unordered_map<std::string, Tensor> weights;
-    std::cout << "Loading weights from: " << weights_dir << std::endl;
-    DIR* dir = opendir(weights_dir.c_str());
-    if (!dir) {
-        std::cerr << "Error: Cannot open directory: " << weights_dir << std::endl;
-        return weights;
-    }
-    struct dirent* entry;
-    std::vector<std::string> bin_files;
-    
-    while ((entry = readdir(dir)) != nullptr) {
-        std::string filename = entry->d_name;
-        if (filename.size() > 4 && 
-            filename.substr(filename.size() - 4) == ".bin" &&
-            filename.find(".bin.shape") == std::string::npos) {
-            bin_files.push_back(filename);
-        }
-    }
-    closedir(dir);
-    std::cout << "Found " << bin_files.size() << " weight files" << std::endl;
-    int loaded = 0;
-    for (const auto& bin_filename : bin_files) {
-        std::string weight_name = bin_filename.substr(0, bin_filename.size() - 4);
-        std::string converted_name;
-        for (size_t i = 0; i < weight_name.size(); i++) {
-            if (weight_name[i] == '_') {
-                converted_name += '.';
-            } else {
-                converted_name += weight_name[i];
-            }
-        }
-
-        std::string bin_path = weights_dir + "/" + bin_filename;
-        std::string shape_path = bin_path + ".shape";
-
-        Tensor tensor = load_single_weight(bin_path, shape_path);
-        
-        if (tensor.size() > 0) {
-            weights[converted_name] = std::move(tensor);
-            loaded++;
-            
-            if (loaded <= 5 || loaded % 20 == 0) {
-                std::cout << "  Loaded [" << loaded << "/" << bin_files.size() << "]: " 
-                          << converted_name << " ";
-                tensor.print_info();
-            }
-        }
-    }
-    
-    std::cout << "\nSuccessfully loaded " << weights.size() << " tensors" << std::endl;
-    
-    return weights;
-}
-
-void WeightLoader::print_weight_info(
-    const std::unordered_map<std::string, Tensor>& weights
-) {
-    std::cout << "\n=== Weight Statistics ===" << std::endl;
-    std::cout << "Total tensors: " << weights.size() << std::endl;
-    
-    size_t total_params = 0;
-    for (const auto& pair : weights) {
-        total_params += pair.second.size();
-    }
-    
-    std::cout << "Total parameters: " << total_params << std::endl;
-    std::cout << "Memory size: " << (total_params * sizeof(float)) / (1024 * 1024) << " MB" << std::endl;
-
-    std::cout << "\nSample weights:" << std::endl;
-    int count = 0;
-    for (const auto& pair : weights) {
-        if (count++ >= 5) break;
-        std::cout << "  " << pair.first << ": ";
-        pair.second.print_info();
+void WeightLoader::load_linear(std::ifstream &file, Linear &linear) {
+    load_tensor(file, linear.weight);
+    if (linear.use_bias) {
+        load_tensor(file, linear.bias);
     }
 }
 
+void WeightLoader::load_block(std::ifstream &file, T5Block &block) {
+    load_tensor(file, block.layer_norm_self_attn.weight);
+    load_tensor(file, block.layer_norm_ff.weight);
+    load_linear(file, block.self_attn.q_proj);
+    load_linear(file, block.self_attn.k_proj);
+    load_linear(file, block.self_attn.v_proj);
+    load_linear(file, block.self_attn.o_proj);
+    if (block.self_attn.has_relative_bias) {
+        load_tensor(file, block.self_attn.relative_attention_bias);
+    }
+
+    if (block.is_decoder && block.cross_attn) {
+        load_tensor(file, block.layer_norm_cross_attn->weight);
+        load_linear(file, block.cross_attn->q_proj);
+        load_linear(file, block.cross_attn->k_proj);
+        load_linear(file, block.cross_attn->v_proj);
+        load_linear(file, block.cross_attn->o_proj);
+    }
+
+    load_linear(file, block.ff.wi);
+    load_linear(file, block.ff.wo);
 }

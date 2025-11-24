@@ -4,14 +4,14 @@
 *.dll
 *.exe
 *.out
+*.py
 /build/
 /bin/
 /CMakeFiles/
 /Makefile
 /*.cmake
-/tests/
 *.log
 *.tmp
 *.swp
-**/test_*
 /weights/
+/layer_test_data/

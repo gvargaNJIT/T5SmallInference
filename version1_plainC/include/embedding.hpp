@@ -2,26 +2,14 @@
 #define EMBEDDING_HPP
 
 #include "tensor.hpp"
-#include "config.hpp"
-#include <vector>
-
-namespace t5 {
-namespace serial {
 
 class Embedding {
 public:
-    Embedding(const Config& config);
-    void forward(const std::vector<int>& token_ids, Tensor& output);
-    void set_weight(const Tensor& weight);
-    const Tensor& weight() const { return weight_; }
-    
-private:
-    size_t vocab_size_;
-    size_t d_model_;
-    
-    Tensor weight_;
+    Tensor weight;
+    int num_embeddings;
+    int embedding_dim;
+    Embedding(int num_emb, int emb_dim);
+    Tensor forward(const Tensor& indices);
 };
-}
-}
 
 #endif

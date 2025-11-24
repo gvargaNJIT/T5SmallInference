@@ -1,3 +1,4 @@
+/* 
 #ifndef STACK_HPP
 #define STACK_HPP
 
@@ -8,6 +9,8 @@
 #include "layer_norm.hpp"
 #include <vector>
 #include <memory>
+#include <unordered_map>
+#include <string>
 
 namespace t5 {
 namespace serial {
@@ -37,3 +40,4 @@ private:
 }
 
 #endif
+*/

@@ -1,41 +1,24 @@
 #include "embedding.hpp"
-#include <stdexcept>
-#include <cstring>
 
-namespace t5 {
-namespace serial {
-
-Embedding::Embedding(const Config& config)
-    : vocab_size_(config.vocab_size)
-    , d_model_(config.d_model)
-    , weight_({vocab_size_, d_model_})
-{
+Embedding::Embedding(int num_emb, int emb_dim)
+    : num_embeddings(num_emb), embedding_dim(emb_dim) {
+    weight = Tensor::randn({num_emb, emb_dim}, 0.0f, 0.02f);
 }
 
-void Embedding::set_weight(const Tensor& weight) {
-    if (weight.shape().size() != 2 || 
-        weight.shape()[0] != vocab_size_ || 
-        weight.shape()[1] != d_model_) {
-        throw std::runtime_error("Embedding: weight shape mismatch");
-    }
-    weight_.copy_from(weight);
-}
-
-void Embedding::forward(const std::vector<int>& token_ids, Tensor& output) {
-    size_t seq_len = token_ids.size();
-    output = Tensor({seq_len, d_model_});
-    const float* weight_data = weight_.data();
-    float* output_data = output.data();
-    for (size_t i = 0; i < seq_len; i++) {
-        int token_id = token_ids[i];
-        if (token_id < 0 || token_id >= static_cast<int>(vocab_size_)) {
-            throw std::runtime_error("Embedding: token_id out of bounds");
+Tensor Embedding::forward(const Tensor& indices) {
+    int batch = indices.shape[0];
+    int seq_len = indices.shape[1];
+    Tensor result({batch, seq_len, embedding_dim});
+    for (int b = 0; b < batch; b++) {
+        for (int s = 0; s < seq_len; s++) {
+            int idx = static_cast<int>(indices.data[b * seq_len + s]);
+            for (int d = 0; d < embedding_dim; d++) {
+                result.data[b * seq_len * embedding_dim +
+                            s * embedding_dim + d] =
+                    weight.data[idx * embedding_dim + d];
+            }
         }
-
-        const float* embedding = weight_data + token_id * d_model_;
-        float* output_pos = output_data + i * d_model_;
-        std::memcpy(output_pos, embedding, d_model_ * sizeof(float));
     }
-}
-}
+
+    return result;
 }
