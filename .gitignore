@@ -1,10 +1,12 @@
+.vscode
 *.o
 *.obj
 *.so
 *.dll
 *.exe
 *.out
-*.py
+__pycache__
+*.pyc
 /build/
 /bin/
 /CMakeFiles/
