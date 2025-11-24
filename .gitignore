@@ -16,4 +16,5 @@ __pycache__
 *.tmp
 *.swp
 /weights/
-/layer_test_data/
+test_cases
+.venv
