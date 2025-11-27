@@ -3,6 +3,18 @@
 #include <algorithm>
 #include <mpi.h>
 
+#define COLOR 1<<10
+#define MAXDIM 1<<12
+#define ROOT 0
+
+#define DBG(rank, ...) \
+    do { \
+        printf("[RANK %d] ", rank); \
+        printf(__VA_ARGS__); \
+        printf("\n"); \
+        fflush(stdout); \
+    } while(0)
+
 Linear::Linear(int in_feat, int out_feat, bool use_bias_)
     : use_bias(use_bias_), in_features(in_feat), out_features(out_feat) {
     float std = std::sqrt(2.0f / (in_feat + out_feat));
@@ -13,9 +25,12 @@ Linear::Linear(int in_feat, int out_feat, bool use_bias_)
 }
 
 Tensor Linear::forward(const Tensor& x) {
-    int rank, size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm world = MPI_COMM_WORLD;
+    int my_rank, num_procs;
+
+    MPI_Comm_rank(world, &my_rank);
+    MPI_Comm_size(world, &num_procs);
+
     std::vector<int> batch_shape;
     for (size_t i = 0; i < x.shape.size() - 1; i++)
         batch_shape.push_back(x.shape[i]);
@@ -28,11 +43,15 @@ Tensor Linear::forward(const Tensor& x) {
 
     Tensor x_2d = x.reshape({batch_size, in_features});
     Tensor local_out_2d({batch_size, out_features});
-    int rows_per_rank = batch_size / size;
-    int extra = batch_size % size;
-    int start = rank * rows_per_rank + std::min(rank, extra);
-    int count = rows_per_rank + (rank < extra ? 1 : 0);
+    int my_work = batch_size / num_procs;
+    int extra = batch_size % num_procs;
+    int start = my_rank*my_work+std::min(my_rank, extra);
+    int count = my_work + (my_rank < extra ? 1 : 0);
     int end = start + count;
+    int count_out = count * out_features;
+
+    DBG(my_rank, "batch_size=%d start=%d end=%d count=%d", batch_size, start, end, count);
+
     for (int b = start; b < end; b++) {
         for (int o = 0; o < out_features; o++) {
             float sum = 0.0f;
@@ -43,35 +62,38 @@ Tensor Linear::forward(const Tensor& x) {
             local_out_2d.data[b * out_features + o] = sum;
         }
     }
-    std::vector<int> recv_counts(size);
-    std::vector<int> displs(size);
-    for (int r = 0; r < size; r++) {
-        int rr = batch_size / size;
-        int ee = batch_size % size;
+
+    if (count > 0)
+        DBG(my_rank, "local_out_2d first element = %f", local_out_2d.data[start * out_features]);
+
+    std::vector<int> recv_counts(num_procs);
+    std::vector<int> offset(num_procs);
+    for (int r = 0; r < num_procs; r++) {
+        int rr = batch_size / num_procs;
+        int ee = batch_size % num_procs;
         int c = rr + (r < ee ? 1 : 0);
         recv_counts[r] = c * out_features;
     }
-    displs[0] = 0;
-    for (int r = 1; r < size; r++)
-        displs[r] = displs[r - 1] + recv_counts[r - 1];
+    offset[0] = 0;
+    for (int r = 1; r < num_procs; r++)
+        offset[r] = offset[r - 1] + recv_counts[r - 1];
 
     Tensor final_2d;
-    if (rank == 0)
+    if (my_rank == ROOT)
         final_2d = Tensor({batch_size, out_features});
 
-    MPI_Gatherv(
-        &local_out_2d.data[start * out_features],
-        count * out_features,
-        MPI_FLOAT,
-        (rank == 0 ? final_2d.data.data() : nullptr),
-        recv_counts.data(),
-        displs.data(),
-        MPI_FLOAT,
-        0,
-        MPI_COMM_WORLD
-    );
+    float *recv_buf = nullptr;
+    if (my_rank == ROOT) {
+        recv_buf = final_2d.data.data();
+        DBG(my_rank, "About to MPI_Gatherv: recv_counts[0]=%d offset[0]=%d", recv_counts[0], offset[0]);
+    }
 
-    if (rank == 0) {
+    float* local_ptr = &local_out_2d.data[start * out_features];
+
+    MPI_Gatherv(local_ptr,count_out,MPI_FLOAT,recv_buf,recv_counts.data(),offset.data(),MPI_FLOAT,ROOT,world);
+
+    if (my_rank == ROOT) {
+        DBG(my_rank, "After MPI_Gatherv, final_2d shape = (%zu, %zu)", final_2d.shape[0], final_2d.shape[1]);
         batch_shape.push_back(out_features);
         return final_2d.reshape(batch_shape);
     } else {
