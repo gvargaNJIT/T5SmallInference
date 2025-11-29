@@ -1,62 +1,36 @@
-cmake_minimum_required(VERSION 3.10)
-project(T5_Inference)
+cmake_minimum_required(VERSION 3.18)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Force GCC 14 before defining the project
+set(CMAKE_C_COMPILER /usr/bin/gcc-14)
+set(CMAKE_CXX_COMPILER /usr/bin/g++-14)
+set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
 
-# Find SentencePiece
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SENTENCEPIECE REQUIRED sentencepiece)
+project(layer_test LANGUAGES CXX CUDA)
 
-# Common library
-add_library(t5_common STATIC
-    common/src/config.cpp
-    common/src/tokenizer.cpp
-    common/src/weight_loader.cpp
+find_package(MPI REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+
+# Set your GPU architecture
+set(CMAKE_CUDA_ARCHITECTURES 50)
+
+# Compile everything together - no separate compilation
+add_executable(test_layer_cuda
+    test_layer_norm.cpp
+    version3_cudaOnly/src/layer_norm.cu
 )
 
-target_include_directories(t5_common PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/include
-    ${SENTENCEPIECE_INCLUDE_DIRS}
-)
-
-target_link_libraries(t5_common PUBLIC
-    ${SENTENCEPIECE_LIBRARIES}
-)
-
-# Version 1: Serial CPU implementation
-add_library(t5_serial STATIC
-    version1_plainC/src/attention.cpp
-    version1_plainC/src/block.cpp
-    version1_plainC/src/embedding.cpp
-    version1_plainC/src/feedforward.cpp
-    version1_plainC/src/layer_norm.cpp
-    version1_plainC/src/matrix_ops.cpp
-    version1_plainC/src/serial_model.cpp
-    version1_plainC/src/stack.cpp
-)
-
-target_include_directories(t5_serial PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/version1_plainC/include
+target_include_directories(test_layer_cuda PRIVATE
+    ${MPI_INCLUDE_PATH}
     ${CMAKE_CURRENT_SOURCE_DIR}/common/include
 )
 
-target_link_libraries(t5_serial PUBLIC
-    t5_common
+target_link_libraries(test_layer_cuda
+    MPI::MPI_CXX
+    CUDA::cudart
 )
 
-# Main executable for Version 1
-add_executable(t5_v1_main
-    version1_plainC/main.cpp
+# Important: Turn OFF separate compilation
+set_target_properties(test_layer_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
-
-target_link_libraries(t5_v1_main PRIVATE
-    t5_serial
-    t5_common
-)
-
-# Compiler optimizations
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_options(t5_serial PRIVATE -O3 -march=native)
-    target_compile_options(t5_v1_main PRIVATE -O3 -march=native)
-endif()
