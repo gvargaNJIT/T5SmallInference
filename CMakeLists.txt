@@ -5,7 +5,7 @@ set(CMAKE_C_COMPILER /usr/bin/gcc-14)
 set(CMAKE_CXX_COMPILER /usr/bin/g++-14)
 set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
 
-project(layer_test LANGUAGES CXX CUDA)
+project(embedding_test LANGUAGES CXX CUDA)
 
 find_package(MPI REQUIRED)
 find_package(CUDAToolkit REQUIRED)
@@ -14,23 +14,23 @@ find_package(CUDAToolkit REQUIRED)
 set(CMAKE_CUDA_ARCHITECTURES 50)
 
 # Compile everything together - no separate compilation
-add_executable(test_layer_cuda
-    test_layer_norm.cpp
-    version3_cudaOnly/src/layer_norm.cu
+add_executable(test_embedding_cuda
+    test_embedding.cpp
+    version3_cudaOnly/src/embedding.cu
 )
 
-target_include_directories(test_layer_cuda PRIVATE
+target_include_directories(test_embedding_cuda PRIVATE
     ${MPI_INCLUDE_PATH}
     ${CMAKE_CURRENT_SOURCE_DIR}/common/include
 )
 
-target_link_libraries(test_layer_cuda
+target_link_libraries(test_embedding_cuda
     MPI::MPI_CXX
     CUDA::cudart
 )
 
 # Important: Turn OFF separate compilation
-set_target_properties(test_layer_cuda PROPERTIES
+set_target_properties(test_embedding_cuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
