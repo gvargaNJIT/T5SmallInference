@@ -1,4 +1,4 @@
-#include "layer_norm.hpp"
+#include "rms_norm.hpp"
 #include <mpi.h>
 #include <cmath>
 #include <vector>
@@ -17,14 +17,14 @@
         fflush(stdout); \
     } while(0)
 
-LayerNorm::LayerNorm(int dim, float epsilon){
+RMSNorm::RMSNorm(int dim, float epsilon){
     weight = Tensor({dim});
     for (int i = 0; i < dim; i++) {
         weight.data[i] = 1.0f;
     }
 }
 
-Tensor LayerNorm::forward(const Tensor& input) {
+Tensor RMSNorm::forward(const Tensor& input) {
     MPI_Comm world = MPI_COMM_WORLD;
     int my_rank, num_procs;
 
@@ -59,7 +59,7 @@ Tensor LayerNorm::forward(const Tensor& input) {
         send_buf = const_cast<float*>(input.data.data());
     }
 
-    DBG(my_rank, "Scatterv: elms_to_comm[rank]=%d offset_s[rank]=%d (my part=%d)",elms_to_comm[my_rank], offset_s[my_rank], scatter_elms);
+    DBG(my_rank, "Scatter: elms_to_comm[rank]=%d offset_s[rank]=%d (my part=%d)",elms_to_comm[my_rank], offset_s[my_rank], scatter_elms);
 
     MPI_Scatterv(send_buf,elms_to_comm.data(),offset_s.data(),MPI_FLOAT,local_input.data.data(),scatter_elms,MPI_FLOAT,ROOT,world);
 
@@ -101,11 +101,11 @@ Tensor LayerNorm::forward(const Tensor& input) {
         recv_buf = result.data.data();
     }
 
-    DBG(my_rank, "Gatherv: send_count=%zu recv_offset=%d",local_output.data.size(), offset_s[my_rank]);
+    DBG(my_rank, "Gather: send_count=%zu recv_offset=%d",local_output.data.size(), offset_s[my_rank]);
 
     MPI_Gatherv(local_output.data.data(),local_output.data.size(),MPI_FLOAT,recv_buf,elms_to_comm.data(),offset_s.data(),MPI_FLOAT,ROOT,world);
 
-    DBG(my_rank, "After Gatherv.");
+    DBG(my_rank, "After Gather");
 
     return result;
 }

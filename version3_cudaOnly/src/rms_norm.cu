@@ -1,4 +1,4 @@
-#include "layer_norm.hpp"
+#include "rms_norm.hpp"
 #include <cmath>
 
 #include <cuda_runtime.h>
@@ -22,7 +22,7 @@
         printf("\n"); \
     } while(0)
 
-__global__ void layernorm_kernel(
+__global__ void rmsnorm_kernel(
     const float* x,
     const float* weight,
     float* out,
@@ -34,7 +34,7 @@ __global__ void layernorm_kernel(
     int tid = threadIdx.x;
 
     if (bid == 0 && tid == 0) {
-        DBG_DEVICE("Starting layernorm: batch_size=%d hidden_size=%d", batch_size, hidden_size);
+        DBG_DEVICE("Starting rmsnorm: batch_size=%d hidden_size=%d", batch_size, hidden_size);
     }
 
     __shared__ float sdata[THREADS_PER_BLOCK];
@@ -65,16 +65,16 @@ __global__ void layernorm_kernel(
     }
 }
 
-LayerNorm::LayerNorm(int hidden_size, float epsilon)
+RMSNorm::RMSNorm(int hidden_size, float epsilon)
     : eps(epsilon) {
     weight = Tensor::ones({hidden_size});
 }
 
-Tensor LayerNorm::forward(const Tensor& x) {
+Tensor RMSNorm::forward(const Tensor& x) {
     int hidden_size = x.shape[x.shape.size() - 1];
     int batch_size = x.size() / hidden_size;
 
-    DBG(0, "LayerNorm: batch_size=%d hidden_size=%d eps=%f", batch_size, hidden_size, eps);
+    DBG(0, "RMSNorm: batch_size=%d hidden_size=%d eps=%f", batch_size, hidden_size, eps);
     
     Tensor result(x.shape);
     float *dev_input, *dev_weight, *dev_output;
@@ -99,7 +99,7 @@ Tensor LayerNorm::forward(const Tensor& x) {
 
     DBG(0, "Launching kernel: %d blocks x %d threads", nblks, nthds);
 
-    layernorm_kernel<<<nblks, nthds>>>(dev_input,dev_weight,dev_output,batch_size,hidden_size,eps);
+    rmsnorm_kernel<<<nblks, nthds>>>(dev_input,dev_weight,dev_output,batch_size,hidden_size,eps);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -119,7 +119,7 @@ Tensor LayerNorm::forward(const Tensor& x) {
     cudaFree(dev_weight);
     cudaFree(dev_output);
 
-    DBG(0, "LayerNorm forward complete");
+    DBG(0, "RMSNorm forward complete");
 
     return result;
 }

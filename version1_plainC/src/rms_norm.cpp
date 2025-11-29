@@ -1,12 +1,12 @@
-#include "layer_norm.hpp"
+#include "rms_norm.hpp"
 #include <cmath>
 
-LayerNorm::LayerNorm(int hidden_size, float epsilon)
+RMSNorm::RMSNorm(int hidden_size, float epsilon)
     : eps(epsilon) {
     weight = Tensor::ones({hidden_size});
 }
 
-Tensor LayerNorm::forward(const Tensor& x) {
+Tensor RMSNorm::forward(const Tensor& x) {
     int hidden_size = x.shape[x.shape.size() - 1];
     Tensor result = x;
     int batch_size = x.size() / hidden_size;
