@@ -1,86 +1,45 @@
-/*
 #include "stack.hpp"
-#include <iostream>
 
-namespace t5 {
-namespace serial {
-
-T5Stack::T5Stack(
-    const Config& config, 
-    bool is_decoder,
-    Embedding* shared_embedding
-)
-    : is_decoder_(is_decoder)
-    , num_layers_(is_decoder ? config.num_decoder_layers : config.num_layers)
-    , embedding_(shared_embedding)
+T5Stack::T5Stack(bool is_decoder)
+    : embed(T5Config::vocab_size, T5Config::d_model),
+      final_rms_norm(T5Config::d_model, T5Config::rms_norm_epsilon)
 {
-    for (size_t i = 0; i < num_layers_; i++) {
-        bool has_cross_attention = is_decoder;
-        blocks_.push_back(
-            std::make_unique<TransformerBlock>(config, is_decoder, has_cross_attention)
-        );
-    }
-    final_layer_norm_ = std::make_unique<LayerNorm>(config.d_model, config.layer_norm_epsilon);
-}
-
-void T5Stack::forward(
-    const std::vector<int>& input_ids,
-    Tensor& output,
-    const Tensor* encoder_hidden_states
-) {
-    Tensor hidden_states;
-    embedding_->forward(input_ids, hidden_states);
-    
-    // DEBUG
-    if (is_decoder_) {
-        std::cout << "DEBUG: Decoder embedding output, first 5 values: ";
-        for (int i = 0; i < 5; i++) {
-            std::cout << hidden_states[i] << " ";
-        }
-        std::cout << std::endl;
-    }
-    
-    for (size_t i = 0; i < blocks_.size(); i++) {
-        Tensor block_output;
-        blocks_[i]->forward(hidden_states, block_output, encoder_hidden_states);
-        hidden_states = block_output;
-        
-        // DEBUG: Check after each block
-        if (is_decoder_ && i == 0) {
-            std::cout << "DEBUG: After decoder block 0, first 5 values: ";
-            for (int j = 0; j < 5; j++) {
-                std::cout << hidden_states[j] << " ";
-            }
-            std::cout << std::endl;
-        }
-    }
-    final_layer_norm_->forward(hidden_states, output);
-    
-    // DEBUG
-    if (is_decoder_) {
-        std::cout << "DEBUG: Final decoder output, first 5 values: ";
-        for (int i = 0; i < 5; i++) {
-            std::cout << output[i] << " ";
-        }
-        std::cout << std::endl;
+    for (int i = 0; i < T5Config::num_layers; i++) {
+        T5Block tmp = T5Block(i==0,is_decoder);
+        blocks.push_back(tmp);
     }
 }
 
-void T5Stack::load_weights(
-    const std::unordered_map<std::string, Tensor>& weights,
-    const std::string& prefix
-) {
-    std::cout << "\nLoading weights for " << prefix << std::endl;
-    for (size_t i = 0; i < blocks_.size(); i++) {
-        std::string block_prefix = prefix + ".block." + std::to_string(i);
-        blocks_[i]->load_weights(weights, block_prefix);
+Tensor T5Stack::forward(
+        const Tensor& input_ids,
+        const Tensor* encoder_hidden_states)
+{
+    Tensor hidden = embed.forward(input_ids);
+
+    Tensor position_bias;
+    bool has_position_bias = false;
+
+    for (auto& block : blocks)
+    {
+        if (!has_position_bias)
+        {
+            auto [new_hidden, new_bias] =
+                block.forward(hidden, nullptr, encoder_hidden_states);
+
+            hidden = new_hidden;
+            position_bias = new_bias;
+            has_position_bias = true;
+        }
+        else
+        {
+            auto [new_hidden, _] =
+                block.forward(hidden, &position_bias, encoder_hidden_states);
+
+            hidden = new_hidden;
+        }
     }
 
-    std::string final_ln_key = prefix + ".final_layer_norm.weight";
-    if (weights.find(final_ln_key) != weights.end()) {
-        final_layer_norm_->set_weight(weights.at(final_ln_key));
-    }
+    hidden = final_rms_norm.forward(hidden);
+
+    return hidden;
 }
-}
-}
-*/

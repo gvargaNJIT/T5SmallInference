@@ -1,113 +1,35 @@
-#include "config.hpp"
-#include "serial_model.hpp"
+#include "model.hpp"
 #include "tokenizer.hpp"
+#include "weight_loader.hpp"
 #include <iostream>
-#include <chrono>
-#include <algorithm> // For std::min
+#include <string>
 
 int main() {
-    std::cout << "T5-Small Inference - VERSION 1: Single CPU\n\n";
-    auto start_total = std::chrono::high_resolution_clock::now();
-
     try {
-        // 1. Configuration
-        std::cout << "Loading configuration...\n";
-        t5::Config config = t5::Config::load("weights/config.json");
-        config.print();
-        std::cout << std::endl;
 
-        // 2. Model Creation
-        std::cout << "Creating model...\n";
-        t5::serial::T5Model model(config);
-        std::cout << "Model created\n\n";
+        T5Model model;
+        WeightLoader::load_weights(model, "t5_weights.bin");
 
-        // 3. Weight Loading
-        std::cout << "Loading pre-trained weights...\n";
-        auto start_load = std::chrono::high_resolution_clock::now();
-        model.load_weights("weights/processed_weights");
-        auto end_load = std::chrono::high_resolution_clock::now();
-        auto load_time = std::chrono::duration<double>(end_load - start_load).count();
-        std::cout << "Weights loaded in " << load_time << " seconds\n\n";
+        SPTokenizer tokenizer("spiece.model");
 
-        // 4. Tokenizer
-        std::cout << "Loading tokenizer...\n";
-        t5::Tokenizer tokenizer;
-        if (!tokenizer.load_vocab("weights/spiece.model")) {
-            std::cerr << "Failed to load tokenizer\n";
-            return 1;
+        std::string input_text = "translate English to German: Hello world. I am so happy that everything has been changed";
+        std::cout << "Input: " << input_text << std::endl;
+
+        std::vector<int> input_ids = tokenizer.encode(input_text, true);
+        Tensor input({static_cast<int>(input_ids.size())});
+        for (size_t i = 0; i < input_ids.size(); i++) {
+            input.data[i] = static_cast<float>(input_ids[i]);
         }
-        std::cout << "Tokenizer loaded\n\n";
-        
-        std::cout << "PAD token: " << tokenizer.pad_token_id() << "\n";
-        std::cout << "EOS token: " << tokenizer.eos_token_id() << "\n";
-        std::cout << "UNK token: " << tokenizer.unk_token_id() << "\n\n";
-        
-        // 5. Encode Input
-        std::string input_text = "translate English to German: The house is wonderful.";
-        std::cout << "Input: " << input_text << "\n\n";
-        
-        std::vector<int> input_ids = tokenizer.encode(input_text);
-        input_ids.push_back(1);
-        
-        // --- CRITICAL FIX: Append EOS Token ---
-        // The T5 encoder expects the input to end with the EOS token (</s>).
-        // Without this, the attention mechanism degrades at the end of the sequence.
-        input_ids.push_back(tokenizer.eos_token_id()); 
-        // --------------------------------------
 
-        std::cout << "Encoded to " << input_ids.size() << " tokens: ";
-        for (size_t i = 0; i < std::min(size_t(10), input_ids.size()); i++) {
-            std::cout << input_ids[i] << " ";
-        }
-        if (input_ids.size() > 10) {std::cout << "...";}
-        std::cout << "\n\n";
+        std::vector<int> output_ids = model.generate(input, 32);
 
-        // 6. Inference
-        std::cout << "Running inference (greedy decoding)...\n";
-        std::cout << "This will take a while on CPU...\n\n";
-        
-        auto start_infer = std::chrono::high_resolution_clock::now();
-        
-        // Generate
-        std::vector<int> output_ids = model.generate(input_ids, 50);
-        
-        auto end_infer = std::chrono::high_resolution_clock::now();
-        auto infer_time = std::chrono::duration<double>(end_infer - start_infer).count();
-        
-        // Debug Output
-        std::cout << "\nGenerated token IDs: ";
-        for (size_t i = 0; i < std::min(size_t(20), output_ids.size()); i++) {
-            std::cout << output_ids[i] << " ";
-        }
-        if (output_ids.size() > 20) std::cout << "...";
-        std::cout << "\n\n";
-        
-        // 7. Decode and Print
         std::string output_text = tokenizer.decode(output_ids);
-        auto end_total = std::chrono::high_resolution_clock::now();
-        auto total_time = std::chrono::duration<double>(end_total - start_total).count();
+        std::cout << "Output: " << output_text << std::endl;
 
-        std::cout << "RESULTS\n";
-        std::cout << "--------------------------------------\n";
-        std::cout << "Input:  " << input_text << "\n";
-        std::cout << "Output: " << output_text << "\n";
-        std::cout << "Output length: " << output_text.length() << " characters\n";
-        std::cout << "\n--------------------------------------\n";
-        std::cout << "TIMING (Version 1: Serial CPU)\n";
-        std::cout << "--------------------------------------\n";
-        std::cout << "Weight loading:  " << load_time << " seconds\n";
-        std::cout << "Inference time:  " << infer_time << " seconds\n";
-        std::cout << "Total time:      " << total_time << " seconds\n";
-        if (infer_time > 0) {
-            std::cout << "Tokens/second:   " << output_ids.size() / infer_time << "\n";
-        }
-        std::cout << "Tokens generated: " << output_ids.size() << "\n";
-        std::cout << "\n";
-        
-    } catch (const std::exception& e) {
-        std::cerr << "\nERROR: " << e.what() << "\n";
+    } catch (const std::exception &e) {
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-    
+
     return 0;
 }

@@ -3,11 +3,11 @@
 
 #include "tensor.hpp"
 
-class LayerNorm {
+class RMSNorm {
 public:
     Tensor weight;
     float eps;
-    LayerNorm(int hidden_size, float epsilon = 1e-6f);
+    RMSNorm(int hidden_size, float epsilon = 1e-6f);
     Tensor forward(const Tensor& x);
 };
 
