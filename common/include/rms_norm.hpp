@@ -1,5 +1,4 @@
-#ifndef RMS_NORM_HPP
-#define RMS_NORM_HPP
+#pragma once
 
 #include "tensor.hpp"
 
@@ -10,5 +9,3 @@ public:
     RMSNorm(int hidden_size, float epsilon = 1e-6f);
     Tensor forward(const Tensor& x);
 };
-
-#endif

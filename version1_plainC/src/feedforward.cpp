@@ -1,12 +1,13 @@
 #include "feedforward.hpp"
 
-FeedForward::FeedForward(const T5Config& config)
-    : wi(config.d_model, config.d_ff, false),
-      wo(config.d_ff, config.d_model, false)
+FeedForward::FeedForward()
+    : wi(T5Config::d_model, T5Config::d_ff),
+      wo(T5Config::d_ff, T5Config::d_model)
 {
 }
 
 Tensor FeedForward::forward(const Tensor& x) {
+    
     Tensor h = wi.forward(x);
     h = activation::relu(h);
     h = wo.forward(h);

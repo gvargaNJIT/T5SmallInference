@@ -1,16 +1,14 @@
-#ifndef FEEDFORWARD_HPP
-#define FEEDFORWARD_HPP
+#pragma once
 
 #include "config.hpp"
 #include "linear.hpp"
 #include "tensor.hpp"
 
-class FeedForward {
+class FeedForward
+{
 public:
     Linear wi;
     Linear wo;
-    FeedForward(const T5Config& config);
-    Tensor forward(const Tensor& x);
+    FeedForward();
+    Tensor forward(const Tensor &x);
 };
-
-#endif

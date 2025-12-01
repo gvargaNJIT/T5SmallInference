@@ -9,6 +9,8 @@ Tensor::Tensor() = default;
 Tensor::Tensor(const std::vector<int> &shape_in, float fill_value)
     : shape(shape_in), data(numel(shape_in), fill_value) {}
 
+
+
 int Tensor::numel(const std::vector<int> &shape_in)
 {
     int total_elements = 1;
@@ -27,21 +29,24 @@ Tensor Tensor::reshape(const std::vector<int> &new_shape) const
     if (numel(new_shape) != size())
         throw std::runtime_error("reshape: size mismatch");
 
-    Tensor reshaped_tensor = *this;
-    reshaped_tensor.shape = new_shape;
-    return reshaped_tensor;
+    Tensor tmp = *this;
+    tmp.shape = new_shape;
+    return tmp;
 }
 
 std::vector<int> Tensor::compute_strides(const std::vector<int> &shape_in)
 {
-    std::vector<int> strides(shape_in.size());
-    int running_product = 1;
 
-    for (size_t idx = shape_in.size(); idx-- > 0; )
-    {
-        strides[idx] = running_product;
-        running_product *= shape_in[idx];
+    int shape_size = shape_in.size();
+    std::vector<int> strides(shape_size);
+
+    int tmp = 1;
+
+    for (int i = shape_size - 1; i >= 0; --i) {
+        strides[i] = tmp;
+        tmp *= shape_in[i];
     }
+
     return strides;
 }
 
@@ -51,8 +56,8 @@ Tensor Tensor::permute(const std::vector<int> &new_axis_order) const
         throw std::runtime_error("permute: wrong dims");
 
     std::vector<int> permuted_shape(shape.size());
-    for (size_t idx = 0; idx < new_axis_order.size(); idx++)
-        permuted_shape[idx] = shape[new_axis_order[idx]];
+    for (size_t i = 0; i < new_axis_order.size(); i++)
+        permuted_shape[i] = shape[new_axis_order[i]];
 
     Tensor output_tensor(permuted_shape, 0.0f);
 
@@ -100,92 +105,60 @@ Tensor Tensor::operator+(const Tensor &other) const
     return output_tensor;
 }
 
-Tensor Tensor::softmax(int axis) const
+Tensor Tensor::softmax() const
 {
-    if (axis < 0)
-        axis += shape.size();
+    int row_length = shape[shape.size() - 1];
 
-    Tensor output_tensor = *this;
+    int rows_count = size() / row_length;
 
-    int axis_dim_size = shape[axis];
+    Tensor out(shape);
 
-    int inner_stride = 1;
-    for (size_t i = axis + 1; i < shape.size(); i++)
-        inner_stride *= shape[i];
-
-    int outer_stride = size() / (axis_dim_size * inner_stride);
-
-    for (int outer_idx = 0; outer_idx < outer_stride; outer_idx++)
+    for (int row = 0; row < rows_count; row++)
     {
-        for (int inner_idx = 0; inner_idx < inner_stride; inner_idx++)
+        int offset = row * row_length;
+
+        float max_val = data[offset];
+        for (int i = 0; i < row_length; i++)
+            max_val = std::max(max_val, data[i+offset]);
+
+        float sum = 0.0f;
+        for (int i = 0; i < row_length; i++)
         {
-            float max_value = -1e30f;
-
-            // First pass — find max for numerical stability
-            for (int d = 0; d < axis_dim_size; d++)
-            {
-                int idx =
-                    outer_idx * axis_dim_size * inner_stride +
-                    d * inner_stride +
-                    inner_idx;
-
-                max_value = std::max(max_value, data[idx]);
-            }
-
-            float exp_sum = 0.f;
-
-            // Second pass — compute exp(x - max)
-            for (int d = 0; d < axis_dim_size; d++)
-            {
-                int idx =
-                    outer_idx * axis_dim_size * inner_stride +
-                    d * inner_stride +
-                    inner_idx;
-
-                output_tensor.data[idx] = std::exp(data[idx] - max_value);
-                exp_sum += output_tensor.data[idx];
-            }
-
-            // Third pass — normalize
-            for (int d = 0; d < axis_dim_size; d++)
-            {
-                int idx =
-                    outer_idx * axis_dim_size * inner_stride +
-                    d * inner_stride +
-                    inner_idx;
-
-                output_tensor.data[idx] /= exp_sum;
-            }
+            out.data[offset + i] = std::exp(data[i+offset] - max_val);
+            sum += out.data[offset + i];
         }
+        
+        for (int i = 0; i < row_length; i++)
+            out.data[i+offset] /= sum;
     }
 
-    return output_tensor;
+    return out;
 }
+
 
 Tensor Tensor::matmul(const Tensor &other) const
 {
-    int M = shape[0];
-    int K_left = shape[1];
-    int K_right = other.shape[0];
-    int N = other.shape[1];
-
-    if (K_left != K_right)
+    if (shape[1]!=other.shape[0])
         throw std::runtime_error("matmul: shape mismatch");
 
-    Tensor output_tensor({M, N});
+    int m = shape[0];
+    int n = shape[1];
+    int p = other.shape[1];   
 
-    for (int row = 0; row < M; row++)
-        for (int col = 0; col < N; col++)
+    Tensor result({m,p});
+
+    for (int row = 0; row < m; row++)
+        for (int col = 0; col < p; col++)
         {
-            float dot_sum = 0.f;
+            float sum = 0.f;
 
-            for (int k = 0; k < K_left; k++)
-                dot_sum += data[row * K_left + k] * other.data[k * N + col];
+            for (int i = 0; i < n; i++)
+                sum += data[row * n + i] * other.data[i * p + col];
 
-            output_tensor.data[row * N + col] = dot_sum;
+            result.data[row * p + col] = sum;
         }
 
-    return output_tensor;
+    return result;
 }
 
 namespace activation
