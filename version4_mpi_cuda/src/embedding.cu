@@ -34,18 +34,18 @@ __global__ void embedding_lookup_kernel(
     const float* indices,
     float* output,
     int batch,
-    int seq_len,
+    int local_seq_len,
     int embedding_dim,
     int num_embeddings
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_elements = batch * seq_len * embedding_dim;
+    int total_elements = batch * local_seq_len * embedding_dim;
     
     if (tid < total_elements) {
-        int dim_idx = tid % embedding_dim;
-        int seq_idx = (tid / embedding_dim) % seq_len;
-        int batch_idx = tid / (seq_len * embedding_dim);
-        int idx = static_cast<int>(indices[batch_idx * seq_len + seq_idx]);
+        int dim_idx   = tid % embedding_dim;
+        int seq_idx   = (tid / embedding_dim) % local_seq_len;
+        int batch_idx = tid / (local_seq_len * embedding_dim);
+        int idx = static_cast<int>(indices[batch_idx * local_seq_len + seq_idx]);
         if (idx >= 0 && idx < num_embeddings) {
             output[tid] = weight[idx * embedding_dim + dim_idx];
         } else {
@@ -71,73 +71,73 @@ Tensor Embedding::forward(const Tensor& indices) {
     int batch = indices.shape[0];
     int seq_len = indices.shape[1];
 
-    DBG(my_rank, "batch=%d seq_len=%d embedding_dim=%d num_procs=%d", 
-        batch, seq_len, embedding_dim, num_procs);
+    DBG(my_rank, "batch=%d seq_len=%d embedding_dim=%d num_procs=%d", batch, seq_len, embedding_dim, num_procs);
 
-    int my_work = (batch + num_procs - 1) / num_procs;
-    int start_idx = std::min(my_rank * my_work, batch);
-    int end_idx = std::min(start_idx + my_work, batch);
-    int n_local = end_idx - start_idx;
+    int base = seq_len / num_procs;
+    int extra = seq_len % num_procs;
+    int local_seq_len = base + (my_rank < extra ? 1 : 0);
+    int start_s = my_rank * base + std::min(my_rank, extra);
+    DBG(my_rank, "SEQ_SPLIT: start_s=%d local_seq_len=%d", start_s, local_seq_len);
 
-    DBG(my_rank, "my_work=%d start_idx=%d end_idx=%d n_local=%d",
-        my_work, start_idx, end_idx, n_local);
+    int n_local = (local_seq_len > 0) ? batch : 0;
 
-    std::vector<int> elms_to_comm(num_procs), offset(num_procs);
-    int scatter_elms = n_local * seq_len;
-    for (int i = 0; i < num_procs; i++) {
-        int proc_start = std::min(i * my_work, batch);
-        int proc_end = std::min(proc_start + my_work, batch);
-        elms_to_comm[i] = (proc_end - proc_start) * seq_len;
-        offset[i] = proc_start * seq_len;
+    std::vector<int> send_counts(num_procs), send_displs(num_procs);
+    for (int r = 0; r < num_procs; ++r) {
+        int r_len = base + (r < extra ? 1 : 0);
+        send_counts[r] = batch * r_len;
+        int r_start = r * base + std::min(r, extra);
+        send_displs[r] = batch * r_start;
     }
 
-    if (my_rank == ROOT) {
-        for (int i = 0; i < num_procs; i++) {
-            DBG(ROOT, "Scatter: rank %d gets %d elements at offset %d",
-                i, elms_to_comm[i], offset[i]);
-        }
-    }
-
-    std::vector<float> local_indices(n_local * seq_len);
+    std::vector<int> local_indices(batch * local_seq_len);
     float *send_buf = nullptr;
     if (my_rank == ROOT) {
         send_buf = const_cast<float*>(indices.data.data());
     }
 
-    MPI_Scatterv(send_buf, elms_to_comm.data(), offset.data(), MPI_FLOAT,local_indices.data(), scatter_elms, MPI_FLOAT, ROOT, world);
+    MPI_Scatterv(send_buf, send_counts.data(), send_displs.data(), MPI_FLOAT, local_indices.data(), batch * local_seq_len, MPI_FLOAT, ROOT, world);
 
-    DBG(my_rank, "After Scatter: received %d floats", scatter_elms);
+    DBG(my_rank, "After Scatterv: received %d floats (batch*local_seq_len=%d)", (int)local_indices.size(), batch * local_seq_len);
 
-    Tensor local_result({n_local, seq_len, embedding_dim});
-    
-    if (n_local > 0) {
-        int total_output_elements = n_local * seq_len * embedding_dim;
+    Tensor local_result({n_local, local_seq_len, embedding_dim});
+
+    if (n_local > 0 && local_seq_len > 0) {
+        int total_output_elements = n_local * local_seq_len * embedding_dim;
         int weight_size = num_embeddings * embedding_dim;
-        int indices_size = n_local * seq_len;
+        int indices_size = batch * local_seq_len;
 
-        float *dev_weight, *dev_indices, *dev_output;
+        float *dev_weight = nullptr, *dev_indices = nullptr, *dev_output = nullptr;
 
-        cudaMalloc(&dev_weight, weight_size * sizeof(float));
-        cudaMalloc(&dev_indices, indices_size * sizeof(float));
-        cudaMalloc(&dev_output, total_output_elements * sizeof(float));
-
-        cudaError_t err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            DBG(my_rank, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
+        cudaError_t err;
+        if ((err = cudaMalloc(&dev_weight, weight_size * sizeof(float))) != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMalloc(dev_weight) failed: %s", cudaGetErrorString(err));
+            return local_result;
+        }
+        if ((err = cudaMalloc(&dev_indices, indices_size * sizeof(float))) != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMalloc(dev_indices) failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_weight);
+            return local_result;
+        }
+        if ((err = cudaMalloc(&dev_output, total_output_elements * sizeof(float))) != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMalloc(dev_output) failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_weight); cudaFree(dev_indices);
             return local_result;
         }
 
-        cudaMemcpy(dev_weight, weight.data.data(), weight_size * sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(dev_indices, local_indices.data(), indices_size * sizeof(float), cudaMemcpyHostToDevice);
+        err = cudaMemcpy(dev_weight, weight.data.data(), weight_size * sizeof(float), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMemcpy(weight) failed: %s", cudaGetErrorString(err));
+        }
+        err = cudaMemcpy(dev_indices, local_indices.data(), indices_size * sizeof(float), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMemcpy(indices) failed: %s", cudaGetErrorString(err));
+        }
 
         int nblks = (total_output_elements + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
         int nthds = THREADS_PER_BLOCK;
-        DBG(my_rank, "Launching kernel: %d blocks x %d threads", nblks, nthds);
+        DBG(my_rank, "Launching kernel: %d blocks x %d threads (total_output=%d)", nblks, nthds, total_output_elements);
 
-        embedding_lookup_kernel<<<nblks, nthds>>>(
-            dev_weight, dev_indices, dev_output,
-            n_local, seq_len, embedding_dim, num_embeddings
-        );
+        embedding_lookup_kernel<<<nblks, nthds>>>(dev_weight, dev_indices, dev_output, n_local, local_seq_len, embedding_dim, num_embeddings);
 
         err = cudaGetLastError();
         if (err != cudaSuccess) {
@@ -149,38 +149,39 @@ Tensor Embedding::forward(const Tensor& indices) {
             DBG(my_rank, "ERROR: Kernel execution failed: %s", cudaGetErrorString(err));
         }
 
-        DBG(my_rank, "Kernel complete, copying back to host");
-
-        cudaMemcpy(local_result.data.data(), dev_output, total_output_elements * sizeof(float), cudaMemcpyDeviceToHost);
+        err = cudaMemcpy(local_result.data.data(), dev_output, total_output_elements * sizeof(float), cudaMemcpyDeviceToHost);
+        if (err != cudaSuccess) {
+            DBG(my_rank, "ERROR: cudaMemcpy(dev_output->host) failed: %s", cudaGetErrorString(err));
+        }
 
         cudaFree(dev_weight);
         cudaFree(dev_indices);
         cudaFree(dev_output);
 
-        DBG(my_rank, "Local CUDA embedding lookup done.");
+        DBG(my_rank, "Local CUDA embedding lookup done (batch=%d local_seq_len=%d)", n_local, local_seq_len);
+    } 
+    else {
+        DBG(my_rank, "No local sequence assigned (local_seq_len=%d)", local_seq_len);
     }
 
-    std::vector<int> elms_to_gather(num_procs), offset_res(num_procs);
-    for (int i = 0; i < num_procs; i++) {
-        int s = std::min(i * my_work, batch);
-        int e = std::min(s + my_work, batch);
-        elms_to_gather[i] = (e - s) * seq_len * embedding_dim;
-        offset_res[i] = s * seq_len * embedding_dim;
+    std::vector<int> recv_counts(num_procs), recv_displs(num_procs);
+    for (int r = 0; r < num_procs; ++r) {
+        int r_len = base + (r < extra ? 1 : 0);
+        recv_counts[r] = batch * r_len * embedding_dim;
+        int r_start = r * base + std::min(r, extra);
+        recv_displs[r] = batch * r_start * embedding_dim;
     }
 
     Tensor result;
-    if (my_rank == ROOT) {
-        result = Tensor({batch, seq_len, embedding_dim});
-    }
-
     float *recv_buf = nullptr;
     if (my_rank == ROOT) {
+        result = Tensor({batch, seq_len, embedding_dim});
         recv_buf = result.data.data();
     }
 
-    MPI_Gatherv(local_result.data.data(), local_result.data.size(), MPI_FLOAT,recv_buf, elms_to_gather.data(), offset_res.data(), MPI_FLOAT,ROOT, world);
+    MPI_Gatherv(local_result.data.data(), n_local * local_seq_len * embedding_dim,MPI_FLOAT, recv_buf, recv_counts.data(), recv_displs.data(), MPI_FLOAT,ROOT, world);
 
-    DBG(my_rank, "After Gather - Embedding forward complete");
+    DBG(my_rank, "After Gatherv - Embedding forward complete");
 
     return result;
 }
