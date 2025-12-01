@@ -18,3 +18,5 @@ __pycache__
 /weights/
 test_cases
 .venv
+*.py
+/python/

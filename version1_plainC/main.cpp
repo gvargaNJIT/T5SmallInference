@@ -12,7 +12,7 @@ int main() {
 
         SPTokenizer tokenizer("spiece.model");
 
-        std::string input_text = "translate English to German: Hello world. I am so happy that everything has been changed";
+        std::string input_text = "translate English to German: Hello world.";
         std::cout << "Input: " << input_text << std::endl;
 
         std::vector<int> input_ids = tokenizer.encode(input_text, true);
@@ -21,7 +21,7 @@ int main() {
             input.data[i] = static_cast<float>(input_ids[i]);
         }
 
-        std::vector<int> output_ids = model.generate(input, 32);
+        std::vector<int> output_ids = model.generate(input, 8);
 
         std::string output_text = tokenizer.decode(output_ids);
         std::cout << "Output: " << output_text << std::endl;

@@ -2,6 +2,8 @@
 
 #include "tensor.hpp"
 #include <vector>
+#include <cmath>
+#include <cstdio>
 
 class Linear {
 public:
