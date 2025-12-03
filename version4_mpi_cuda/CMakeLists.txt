@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
+# set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
 
 project(t5_cuda LANGUAGES CXX CUDA)
 
