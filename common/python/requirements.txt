@@ -1,4 +1,0 @@
-sentencepiece
-torch
-transformers
-numpy

@@ -232,7 +232,7 @@ bool test_layer_norm(const std::string& data_dir) {
             auto [name1, input] = load_named_tensor(file);
             auto [name2, expected] = load_named_tensor(file);
             auto [name3, weight] = load_named_tensor(file);
-            LayerNorm ln(weight.shape[0]);
+            RMSNorm ln(weight.shape[0]);
             ln.weight = weight;
             Tensor output = ln.forward(input);
             float rel_err = relative_error(output, expected);
@@ -251,7 +251,7 @@ bool test_layer_norm(const std::string& data_dir) {
             auto [name1, input] = load_named_tensor(file);
             auto [name2, expected] = load_named_tensor(file);
             auto [name3, weight] = load_named_tensor(file);       
-            LayerNorm ln(weight.shape[0]);
+            RMSNorm ln(weight.shape[0]);
             ln.weight = weight;
             Tensor output = ln.forward(input);
             float rel_err = relative_error(output, expected);
@@ -270,7 +270,7 @@ bool test_layer_norm(const std::string& data_dir) {
             auto [name1, input] = load_named_tensor(file);
             auto [name2, expected] = load_named_tensor(file);
             auto [name3, weight] = load_named_tensor(file);       
-            LayerNorm ln(weight.shape[0]);
+            RMSNorm ln(weight.shape[0]);
             ln.weight = weight;
             Tensor output = ln.forward(input);
             float rel_err = relative_error(output, expected);

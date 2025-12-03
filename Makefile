@@ -1,22 +1,26 @@
-PYTHON := python3
-VENV_DIR := .venv
-VENV_BIN := $(VENV_DIR)/bin
-REQ := common/python/requirements.txt
+# Minimal convenience Makefile that wraps CMake targets
 
-.PHONY: generate-test-cases venv install
+.PHONY: help configure build generate generate-fast venv pip_install clean
 
-generate-test-cases: venv install
-	@echo "Running test case generator..."
-	@$(VENV_BIN)/python common/python/t5_testkit/main.py
+help:
+	@printf "Targets:\n  configure       Configure the build directory\n  build           Build default target\n  generate        Create .venv, install deps and run generator\n  generate-fast   Run generator using system Python (no venv)\n  venv            Create .venv via CMake\n  pip_install     Install python requirements into .venv via CMake\n  clean           Remove build, .venv and generated test_cases\n"
 
-venv:
-	@if [ ! -d "$(VENV_DIR)" ]; then \
-		echo "Creating virtual environment..."; \
-		$(PYTHON) -m venv $(VENV_DIR); \
-	else \
-		echo "Virtual environment already exists."; \
-	fi
+configure:
+	@mkdir -p build && cmake -S . -B build
 
-install: venv
-	@echo "Installing requirements..."
-	@$(VENV_BIN)/pip install -r $(REQ)
+build: configure
+	@cmake --build build -- -j$(shell nproc)
+
+generate: configure
+	@cmake --build build --target generate-test-cases
+
+
+venv: configure
+	@cmake --build build --target venv
+
+pip_install: configure
+	@cmake --build build --target pip_install
+
+
+clean:
+	@rm -rf build .venv test_cases

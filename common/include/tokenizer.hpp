@@ -1,6 +1,4 @@
-#ifndef TOKENIZER_HPP
-#define TOKENIZER_HPP
-
+#pragma once
 #include <sentencepiece_processor.h>
 #include <string>
 #include <vector>
@@ -20,5 +18,4 @@ public:
     int get_eos_id() const;
 };
 
-#endif
 
