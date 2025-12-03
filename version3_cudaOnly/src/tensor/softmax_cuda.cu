@@ -69,7 +69,7 @@ __global__ void softmax_kernel(const float* input, float* output,
     }
 }
 
-extern "C" Tensor cuda_softmax(const Tensor& input)
+extern "C" Tensor softmax_cuda(const Tensor& input)
 {
     int row_length = input.shape[input.shape.size() - 1];
     int rows_count = input.size() / row_length;

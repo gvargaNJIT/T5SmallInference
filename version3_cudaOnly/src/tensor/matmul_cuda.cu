@@ -5,7 +5,7 @@
 
 #define MAX_TILE_WIDTH 32
 
-__global__ void mat_mult_cuda(int m, int n, int p, const float *d_a, const float *d_b, float *d_c, int tile_width)
+__global__ void mat_mult_kernel(int m, int n, int p, const float *d_a, const float *d_b, float *d_c, int tile_width)
 {
     __shared__ float a_shared[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
     __shared__ float b_shared[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
@@ -58,7 +58,7 @@ __global__ void mat_mult_cuda(int m, int n, int p, const float *d_a, const float
     }
 }
 
-extern "C" Tensor cuda_matmul(const Tensor& a, const Tensor& b)
+extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b)
 {
 
     int m = a.shape[0];
@@ -84,7 +84,7 @@ extern "C" Tensor cuda_matmul(const Tensor& a, const Tensor& b)
     dim3 numBlocks((p + tile_width - 1) / tile_width,
                    (m + tile_width - 1) / tile_width);
 
-    mat_mult_cuda<<<numBlocks, threadsPerBlock>>>(m, n, p, d_a, d_b, d_c, tile_width);
+    mat_mult_kernel<<<numBlocks, threadsPerBlock>>>(m, n, p, d_a, d_b, d_c, tile_width);
 
     cudaMemcpy(result.data.data(), d_c, size_c, cudaMemcpyDeviceToHost);
 

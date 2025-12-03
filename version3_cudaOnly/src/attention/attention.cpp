@@ -4,10 +4,9 @@
 #include <cstring>
 #include "config.hpp"
 
-// CUDA kernel declaration
-extern "C" void cuda_compute_relative_position_bias(
-    Tensor& bias,
-    const Tensor& relative_attention_bias,
+extern "C" void compute_relative_position_bias_cuda(
+    Tensor &bias,
+    const Tensor &relative_attention_bias,
     int query_len,
     int key_len,
     int n_heads,
@@ -40,16 +39,14 @@ void MultiHeadAttention::compute_relative_position_bias(
         return;
     }
 
-    cuda_compute_relative_position_bias(
-        bias, 
-        relative_attention_bias, 
-        query_len, 
-        key_len, 
-        n_heads,
-        is_decoder,
+    compute_relative_position_bias_cuda(
+        bias, relative_attention_bias,
+        query_len, key_len,
+        n_heads, is_decoder,
         T5Config::num_buckets,
         T5Config::max_distance);
 }
+
 std::pair<Tensor, Tensor> MultiHeadAttention::forward(
     const Tensor &hidden_states,
     const Tensor *key_value_states,

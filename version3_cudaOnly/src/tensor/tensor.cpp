@@ -4,9 +4,11 @@
 #include <cmath>
 #include <stdexcept>
 
-// CUDA kernel declarations
-extern "C" Tensor cuda_matmul(const Tensor &a, const Tensor &b);
-extern "C" Tensor cuda_softmax(const Tensor &input);
+extern "C"
+{
+    Tensor matmul_cuda(const Tensor &a, const Tensor &b);
+    Tensor softmax_cuda(const Tensor &input);
+}
 
 Tensor::Tensor() = default;
 
@@ -110,7 +112,7 @@ Tensor Tensor::operator+(const Tensor &other) const
 
 Tensor Tensor::softmax() const
 {
-    return cuda_softmax(*this);
+    return softmax_cuda(*this);
 }
 
 Tensor Tensor::matmul(const Tensor &other) const
@@ -118,7 +120,7 @@ Tensor Tensor::matmul(const Tensor &other) const
     if (shape[1] != other.shape[0])
         throw std::runtime_error("matmul: shape mismatch");
 
-    return cuda_matmul(*this, other);
+    return matmul_cuda(*this, other);
 }
 
 namespace activation

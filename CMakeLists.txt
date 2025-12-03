@@ -8,6 +8,8 @@ add_subdirectory(common)
 add_subdirectory(version1_plainC)
 add_subdirectory(version2_mpiOnly)
 add_subdirectory(version3_cudaOnly)
-add_subdirectory(testing)
+add_subdirectory(version4_mpi_cuda)
+
+# add_subdirectory(testing)
 
 

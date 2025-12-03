@@ -74,7 +74,7 @@ __global__ void compute_relative_position_bias_kernel(
     bias[index] = relative_attention_bias[bucket_idx * n_heads + head];
 }
 
-extern "C" void cuda_compute_relative_position_bias(
+extern "C" void compute_relative_position_bias_cuda(
     Tensor& bias,
     const Tensor& relative_attention_bias,
     int query_len,
