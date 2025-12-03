@@ -93,6 +93,37 @@ Tensor Tensor::transpose() const
     return permute({1, 0});
 }
 
+
+Tensor Tensor::softmax() const
+{
+    int row_length = shape[shape.size() - 1];
+
+    int rows_count = size() / row_length;
+
+    Tensor out(shape);
+
+    for (int row = 0; row < rows_count; row++)
+    {
+        int offset = row * row_length;
+
+        float max_val = data[offset];
+        for (int i = 0; i < row_length; i++)
+            max_val = std::max(max_val, data[i+offset]);
+
+        float sum = 0.0f;
+        for (int i = 0; i < row_length; i++)
+        {
+            out.data[offset + i] = std::exp(data[i+offset] - max_val);
+            sum += out.data[offset + i];
+        }
+        
+        for (int i = 0; i < row_length; i++)
+            out.data[i+offset] /= sum;
+    }
+
+    return out;
+}
+
 Tensor Tensor::operator+(const Tensor &other) const
 {
     if (shape != other.shape)

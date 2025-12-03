@@ -8,7 +8,9 @@ file(GLOB MPI_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
 file(GLOB MPI_TENSOR_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/tensor/*.cpp")
 
-set(ALL_MPI_SOURCES ${MPI_SOURCES} ${MPI_TENSOR_SOURCES})
+file(GLOB MPI_ATTENTION_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/attention/*.cpp")
+
+set(ALL_MPI_SOURCES ${MPI_SOURCES} ${MPI_TENSOR_SOURCES} ${MPI_ATTENTION_SOURCES})
 
 add_library(t5_mpi_lib STATIC
     ${ALL_MPI_SOURCES}
@@ -17,6 +19,7 @@ add_library(t5_mpi_lib STATIC
 target_include_directories(t5_mpi_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/version1_plainC/include
     ${CMAKE_SOURCE_DIR}/common/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${MPI_CXX_INCLUDE_DIRS}
 )
 

@@ -3,7 +3,8 @@
 #include <cmath>
 #include <cstring>
 #include "config.hpp"
-MultiHeadAttention::MultiHeadAttention(bool has_bias,bool is_decoder)
+
+MultiHeadAttention::MultiHeadAttention(bool has_bias, bool is_decoder)
     : q_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
       k_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
       v_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
@@ -134,26 +135,22 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
     {
 
         Tensor q_h({seq_len, d_kv});
-        memcpy(
-            q_h.data.data(),                
-            q.data.data() + h * q_head_size,
-            q_head_size * sizeof(float)    
-        );
+        memcpy(q_h.data.data(),
+               q.data.data() + h * q_head_size,
+               q_head_size * sizeof(float));
 
         Tensor k_h({k_len, d_kv});
-        memcpy(
-            k_h.data.data(),
-            k.data.data() + h * k_head_size,
-            k_head_size * sizeof(float));
+        memcpy(k_h.data.data(),
+               k.data.data() + h * k_head_size,
+               k_head_size * sizeof(float));
 
         Tensor v_h({k_len, d_kv});
-        memcpy(
-            v_h.data.data(),
-            v.data.data() + h * k_head_size,
-            k_head_size * sizeof(float));
+        memcpy(v_h.data.data(),
+               v.data.data() + h * k_head_size,
+               k_head_size * sizeof(float));
 
         // Attention(Q,K,V) = Softmax((Q * K^T ) + B)*V
-   
+
         Tensor scores = q_h.matmul(k_h.transpose());
 
         int bias_offset = h * bias_head_size;
@@ -167,13 +164,10 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
 
         Tensor head_out = scores.matmul(v_h);
 
-        memcpy(
-            context_layer.data.data() + h * q_head_size,
-            head_out.data.data(),
-            q_head_size * sizeof(float));
+        memcpy(context_layer.data.data() + h * q_head_size,
+               head_out.data.data(),
+               q_head_size * sizeof(float));
     }
-
-    
 
     // [n_heads, seq, d_kv] -> [seq, n_heads, d_kv] -> [seq, inner_dim]
     context_layer = context_layer.permute({1, 0, 2})
