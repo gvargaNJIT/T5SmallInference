@@ -44,7 +44,7 @@ target_include_directories(test_mpi PRIVATE
 
 target_link_libraries(test_mpi
     test_common
-    version2_mpi
+    t5_mpi_lib
     ${MPI_CXX_LIBRARIES}
 )
 

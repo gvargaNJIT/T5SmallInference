@@ -49,7 +49,6 @@ std::vector<int> T5Model::generate(const Tensor &input_ids, int max_length)
         int next_token = std::max_element(last_logits.begin(), last_logits.end())
                          - last_logits.begin();
 
-        // Broadcast next_token so all ranks stay in sync
         MPI_Bcast(&next_token, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
         if (next_token == T5Config::eos_token_id)
