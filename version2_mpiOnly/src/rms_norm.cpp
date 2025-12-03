@@ -2,13 +2,9 @@
 #include <mpi.h>
 #include <cmath>
 #include <vector>
-#include <algorithm>
-#include <iostream>
+#include <cstdio>
 
-#define COLOR 1<<10
-#define MAXDIM 1<<12
 #define ROOT 0
-
 #define DBG(rank, ...) \
     do { \
         printf("[RANK %d] ", rank); \
@@ -17,95 +13,88 @@
         fflush(stdout); \
     } while(0)
 
-RMSNorm::RMSNorm(int dim, float epsilon){
-    weight = Tensor({dim});
-    for (int i = 0; i < dim; i++) {
-        weight.data[i] = 1.0f;
-    }
+RMSNorm::RMSNorm(int hidden_size, float epsilon)
+    : eps(epsilon) {
+    weight = Tensor({hidden_size}, 1.0f);
 }
 
-Tensor RMSNorm::forward(const Tensor& input) {
-    MPI_Comm world = MPI_COMM_WORLD;
-    int my_rank, num_procs;
+Tensor RMSNorm::forward(const Tensor& x) {
+    int rank, num_procs;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 
-    MPI_Comm_rank(world, &my_rank);
-    MPI_Comm_size(world, &num_procs);
+    int hidden_size = x.shape.back();
+    int batch_size  = x.size() / hidden_size;
 
-    int batch = input.shape[0];
-    int seq_len = input.shape[1];
-    int hidden_dim = input.shape[2];
+    DBG(rank, "batch_size=%d hidden_size=%d", batch_size, hidden_size);
+    Tensor x_bcast = x;
+    MPI_Bcast(x_bcast.data.data(), batch_size * hidden_size, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 
-    if (my_rank == ROOT) {
-        DBG(my_rank, "input shape = (%d, %d, %d)", batch, seq_len, hidden_dim);
+    int base  = batch_size / num_procs;
+    int extra = batch_size % num_procs;
+
+    int local_batch = base + (rank < extra ? 1 : 0);
+    int start       = rank * base + std::min(rank, extra);
+
+    DBG(rank, "start=%d local_batch=%d", start, local_batch);
+
+    Tensor local_out({local_batch * hidden_size});
+    const float* X = x_bcast.data.data();
+    const float* W = weight.data.data();
+    float* Y = local_out.data.data();
+
+    for (int b = 0; b < local_batch; b++) {
+        int global_b = start + b;
+        const float* row = X + global_b * hidden_size;
+
+        // variance = mean(x²)
+        float variance = 0.0f;
+        for (int h = 0; h < hidden_size; h++)
+            variance += row[h] * row[h];
+
+        variance /= hidden_size;
+        float inv_std = 1.0f / std::sqrt(variance + eps);
+
+        if (b == 0)
+            DBG(rank, "First row: variance=%f inv_std=%f", variance, inv_std);
+
+        // normalize + scale
+        float* out_row = Y + b * hidden_size;
+        for (int h = 0; h < hidden_size; h++)
+            out_row[h] = row[h] * inv_std * W[h];
     }
 
-    int my_work = (batch+num_procs-1)/num_procs;
-    int start_idx = std::min(my_rank*my_work, batch);
-    int end_idx = std::min(start_idx+my_work, batch);
-    int n_local = end_idx - start_idx;
-    std::vector<int> elms_to_comm(num_procs), offset_s(num_procs);
-    int scatter_elms = n_local * seq_len * hidden_dim;
-    DBG(my_rank, "start_idx=%d end_idx=%d n_local=%d scatter_elms=%d",start_idx, end_idx, n_local, scatter_elms);
-    for (int i=0; i<num_procs; i++) {
-        int proc_start = std::min(i*my_work, batch);
-        int proc_end = std::min(proc_start+my_work, batch);
-        elms_to_comm[i] = (proc_end-proc_start)*seq_len*hidden_dim;
-        offset_s[i] = proc_start*seq_len*hidden_dim;
-    }
+    DBG(rank, "Compute done");
 
-    Tensor local_input({n_local, seq_len, hidden_dim});
-    float *send_buf = nullptr;
-    if (my_rank == ROOT) {
-        send_buf = const_cast<float*>(input.data.data());
-    }
+    std::vector<int> counts(num_procs), displs(num_procs);
 
-    DBG(my_rank, "Scatter: elms_to_comm[rank]=%d offset_s[rank]=%d (my part=%d)",elms_to_comm[my_rank], offset_s[my_rank], scatter_elms);
+    {
+        int pos = 0;
+        for (int r = 0; r < num_procs; r++) {
+            int r_batch = base + (r < extra ? 1 : 0);
 
-    MPI_Scatterv(send_buf,elms_to_comm.data(),offset_s.data(),MPI_FLOAT,local_input.data.data(),scatter_elms,MPI_FLOAT,ROOT,world);
+            counts[r] = r_batch * hidden_size;
+            displs[r] = pos * hidden_size;
 
-    if (n_local > 0) {
-        float v0 = local_input.data[0];
-        DBG(my_rank, "local_input first element = %f", v0);
-    }
+            if (rank == ROOT)
+                printf("[ROOT] gather r=%d batch=%d displ=%d\n",
+                        r, r_batch, displs[r]);
 
-    Tensor local_output({n_local, seq_len, hidden_dim});
-
-    for (int b=0; b<n_local; b++) {
-        for (int s=0; s<seq_len; s++) {
-            int offset = b*seq_len*hidden_dim+s* hidden_dim;
-            float sum_squares = 0.0f;
-            for (int d = 0; d < hidden_dim; d++) {
-                float val = local_input.data[offset + d];
-                sum_squares += val * val;
-            }
-
-            float rms = std::sqrt(sum_squares / hidden_dim + eps);
-            float inv_rms = 1.0f / rms;
-
-            if (b == 0 && s == 0) {
-                DBG(my_rank, "RMS first-token sum_squares=%f rms=%f", sum_squares, rms);
-            }
-
-            for (int d = 0; d < hidden_dim; d++) {
-                local_output.data[offset + d] = 
-                    local_input.data[offset + d] * inv_rms * weight.data[d];
-            }
+            pos += r_batch;
         }
     }
 
     Tensor result;
-    if (my_rank == ROOT) result = Tensor({batch, seq_len, hidden_dim});
+    float* recvbuf = nullptr;
 
-    float *recv_buf = nullptr;
-    if (my_rank == ROOT) {
-        recv_buf = result.data.data();
+    if (rank == ROOT) {
+        result = Tensor({batch_size * hidden_size});
+        recvbuf = result.data.data();
     }
 
-    DBG(my_rank, "Gather: send_count=%zu recv_offset=%d",local_output.data.size(), offset_s[my_rank]);
+    MPI_Gatherv(local_out.data.data(), local_batch * hidden_size, MPI_FLOAT, recvbuf, counts.data(), displs.data(), MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 
-    MPI_Gatherv(local_output.data.data(),local_output.data.size(),MPI_FLOAT,recv_buf,elms_to_comm.data(),offset_s.data(),MPI_FLOAT,ROOT,world);
-
-    DBG(my_rank, "After Gather");
+    DBG(rank, "After Gatherv");
 
     return result;
 }

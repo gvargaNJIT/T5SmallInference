@@ -11,6 +11,8 @@ endif()
 add_library(t5_common STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/tokenizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/weight_loader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/linear.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/feedforward.cpp
 )
 
 target_include_directories(t5_common PUBLIC

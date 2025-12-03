@@ -1,10 +1,8 @@
 #include "embedding.hpp"
 #include <mpi.h>
 #include <vector>
-#include <algorithm>
+#include <cstdio>
 
-#define COLOR 1<<10
-#define MAXDIM 1<<12
 #define ROOT 0
 
 #define DBG(rank, ...) \
@@ -17,98 +15,68 @@
 
 Embedding::Embedding(int num_emb, int emb_dim)
     : num_embeddings(num_emb), embedding_dim(emb_dim) {
-    weight = Tensor({num_emb, emb_dim});
-    for (int i = 0; i < num_emb * emb_dim; i++) {
-        weight.data[i] = 0.0f;
-    }
+    weight = Tensor({num_emb, emb_dim}, 0.0f);
 }
 
-Tensor Embedding::forward(const Tensor& indices) {
+Tensor Embedding::forward(const Tensor& indices){
     MPI_Comm world = MPI_COMM_WORLD;
-    int my_rank, num_procs;
-    MPI_Comm_rank(world, &my_rank);
+    int rank, num_procs;
+    MPI_Comm_rank(world, &rank);
     MPI_Comm_size(world, &num_procs);
 
-    int batch = indices.shape[0];
-    int seq_len = indices.shape[1];
+    int seq_len = indices.shape[0];
+    DBG(rank, "seq_len=%d num_procs=%d", seq_len, num_procs);
 
-    DBG(my_rank, "batch=%d seq_len=%d num_procs=%d", batch, seq_len, num_procs);
+    MPI_Bcast(weight.data.data(), num_embeddings * embedding_dim, MPI_FLOAT, ROOT, world);
 
-    int base = seq_len / num_procs;
+    int base  = seq_len / num_procs;
     int extra = seq_len % num_procs;
-    int local_seq_len = base + (my_rank < extra ? 1 : 0);
-    int start_s = my_rank * base + std::min(my_rank, extra);
 
-    DBG(my_rank, "SEQ_PAR: start_s=%d local_seq_len=%d", start_s, local_seq_len);
+    int local_len = base + (rank < extra ? 1 : 0);
+    int start     = rank * base + std::min(rank, extra);
 
-    std::vector<int> send_counts(num_procs), send_displs(num_procs);
-    int total_send = 0;
-    for (int r = 0; r < num_procs; ++r) {
-        int r_len = base + (r < extra ? 1 : 0);
-        send_counts[r] = batch * r_len;
-        send_displs[r] = total_send;
-        total_send += send_counts[r];
+    DBG(rank, "start=%d local_len=%d", start, local_len);
+
+    Tensor local_out({local_len, embedding_dim});
+    for (int i = 0; i < local_len; i++) {
+        int global_s = start + i;
+        int idx = (int)indices.data[global_s];
+
+        DBG(rank, "lookup s=%d idx=%d", global_s, idx);
+
+        const float* src = &weight.data[idx * embedding_dim];
+        float* dst = &local_out.data[i * embedding_dim];
+
+        std::copy(src, src + embedding_dim, dst);
     }
 
-    std::vector<int> local_idx(batch * local_seq_len, 0);
+    DBG(rank, "local loop done");
 
-    std::vector<int> packed_sendbuf;
-    int *sendbuf_ptr = nullptr;
-    if (my_rank == ROOT) {
-        packed_sendbuf.resize(total_send);
-        for (int r = 0; r < num_procs; ++r) {
+    std::vector<int> counts(num_procs), displs(num_procs);
+    {
+        int pos = 0;
+        for (int r = 0; r < num_procs; r++) {
             int r_len = base + (r < extra ? 1 : 0);
-            int r_start = r * base + std::min(r, extra);
-            int out_off = send_displs[r];
-            for (int b = 0; b < batch; ++b) {
-                const float* src_float = &indices.data[b * seq_len + r_start];
-                int dst_off = out_off + b * r_len;
-                for (int t = 0; t < r_len; ++t) {
-                    packed_sendbuf[dst_off + t] = static_cast<int>(std::lrint(src_float[t]));
-                }
-            }
+            counts[r] = r_len * embedding_dim;
+            displs[r] = pos * embedding_dim;
+
+            if (rank == ROOT)
+                printf("[ROOT] gather r=%d r_len=%d displ=%d\n", r, r_len, displs[r]);
+
+            pos += r_len;
         }
-        sendbuf_ptr = packed_sendbuf.data();
-    }
-
-    MPI_Scatterv(sendbuf_ptr, send_counts.data(), send_displs.data(), MPI_INT, local_idx.data(), batch * local_seq_len, MPI_INT,ROOT, world);
-
-    DBG(my_rank, "After Scatterv. Got %d ints.", (int)local_idx.size());
-
-    Tensor local_out({batch, local_seq_len, embedding_dim});
-    for (int b = 0; b < batch; ++b) {
-        for (int s = 0; s < local_seq_len; ++s) {
-            int idx = local_idx[b * local_seq_len + s];
-            if (idx < 0 || idx >= num_embeddings) {
-                DBG(my_rank, "ERROR: bad idx %d at (b=%d,s=%d)", idx, b, s);
-                idx = 0;
-            }
-            float* dst = &local_out.data[(b*local_seq_len + s) * embedding_dim];
-            const float* src = &weight.data[idx * embedding_dim];
-            std::copy(src, src + embedding_dim, dst);
-        }
-    }
-
-    DBG(my_rank, "Local embedding lookup done.");
-
-    std::vector<int> recv_counts(num_procs), recv_displs(num_procs);
-    for (int r = 0; r < num_procs; ++r) {
-        int r_len = base + (r < extra ? 1 : 0);
-        recv_counts[r] = batch * r_len * embedding_dim;
-        int r_start = r * base + std::min(r, extra);
-        recv_displs[r] = batch * r_start * embedding_dim;
     }
 
     Tensor result;
     float* recvbuf = nullptr;
-    if (my_rank == ROOT) {
-        result = Tensor({batch, seq_len, embedding_dim});
+    if (rank == ROOT) {
+        result = Tensor({seq_len, embedding_dim});
         recvbuf = result.data.data();
     }
 
-    MPI_Gatherv(local_out.data.data(), batch * local_seq_len * embedding_dim, MPI_FLOAT, recvbuf, recv_counts.data(), recv_displs.data(), MPI_FLOAT, ROOT, world);
+    MPI_Gatherv(local_out.data.data(),local_len * embedding_dim, MPI_FLOAT, recvbuf, counts.data(), displs.data(), MPI_FLOAT, ROOT, world);
 
-    DBG(my_rank, "After Gatherv");
+    DBG(rank, "After Gatherv");
 
     return result;
 }
