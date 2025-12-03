@@ -57,7 +57,7 @@ Tensor RMSNorm::forward(const Tensor& x) {
     int seq_len = x.shape[0];
     int hidden_size = x.shape[1];
 
-    DBG(0, "RMSNorm: seq_len=%d hidden_size=%d eps=%f", seq_len, hidden_size, eps);
+    //DBG(0, "RMSNorm: seq_len=%d hidden_size=%d eps=%f", seq_len, hidden_size, eps);
     
     Tensor result({seq_len, hidden_size});
     float *dev_input, *dev_weight, *dev_output;
@@ -68,7 +68,7 @@ Tensor RMSNorm::forward(const Tensor& x) {
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
         return result;
     }
 
@@ -78,18 +78,18 @@ Tensor RMSNorm::forward(const Tensor& x) {
     int nblks = seq_len;
     int nthds = THREADS_PER_BLOCK;
 
-    DBG(0, "Launching kernel: %d blocks x %d threads", nblks, nthds);
+    //DBG(0, "Launching kernel: %d blocks x %d threads", nblks, nthds);
 
     rmsnorm_kernel<<<nblks, nthds>>>(dev_input, dev_weight, dev_output, seq_len, hidden_size, eps);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: Kernel launch failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: Kernel launch failed: %s", cudaGetErrorString(err));
     }
 
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: Kernel execution failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: Kernel execution failed: %s", cudaGetErrorString(err));
     }
 
     cudaMemcpy(result.data.data(), dev_output, x.size() * sizeof(float), cudaMemcpyDeviceToHost);
@@ -98,7 +98,7 @@ Tensor RMSNorm::forward(const Tensor& x) {
     cudaFree(dev_weight);
     cudaFree(dev_output);
 
-    DBG(0, "RMSNorm forward complete");
+    //DBG(0, "RMSNorm forward complete");
 
     return result;
 }

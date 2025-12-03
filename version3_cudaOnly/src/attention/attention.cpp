@@ -3,7 +3,19 @@
 #include <cmath>
 #include <cstring>
 #include "config.hpp"
-MultiHeadAttention::MultiHeadAttention(bool has_bias,bool is_decoder)
+
+// CUDA kernel declaration
+extern "C" void cuda_compute_relative_position_bias(
+    Tensor& bias,
+    const Tensor& relative_attention_bias,
+    int query_len,
+    int key_len,
+    int n_heads,
+    bool is_decoder,
+    int num_buckets,
+    int max_distance);
+
+MultiHeadAttention::MultiHeadAttention(bool has_bias, bool is_decoder)
     : q_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
       k_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
       v_proj(T5Config::d_model, T5Config::num_heads * T5Config::d_kv),
@@ -19,51 +31,6 @@ MultiHeadAttention::MultiHeadAttention(bool has_bias,bool is_decoder)
         relative_attention_bias = Tensor({T5Config::num_buckets, n_heads});
 }
 
-// Reference: "Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer"
-// https://arxiv.org/abs/1910.10683
-// https://colab.research.google.com/drive/19WgoxCSzAnzi0MueBRP6KY99Ewre1FFy?usp=sharing#scrollTo=W4zmUH7Etndk
-
-int MultiHeadAttention::relative_position_to_bucket(int relative_position)
-{
-    int number_buckets = T5Config::num_buckets;
-    int bucket = 0;
-
-    // In the bidirectional Encoder, we can see both directions of our input
-    //(previous words and next words), so the buckets are split.
-    if (!is_decoder)
-    {
-        number_buckets = number_buckets / 2;
-
-        // If key > query this is forward direction
-        if (relative_position > 0)
-            bucket += number_buckets;
-
-        relative_position = std::abs(relative_position);
-    }
-    else
-    {
-        // The Decoder only uses past positions, so the relative position
-        // (key - query) is always negative or zero.
-        // We negate it to get a positive distance.
-        relative_position = -std::min(relative_position, 0);
-    }
-
-    int max_exact = number_buckets / 2;
-
-    // if is small -> exact buckets
-    if (relative_position < max_exact)
-        return bucket + relative_position;
-
-    // if is large: log buckets
-    float log_ratio = std::log((float)relative_position / max_exact);
-    float log_max = std::log((float)T5Config::max_distance / max_exact);
-
-    float pos = max_exact + (log_ratio / log_max) * (num_buckets - max_exact);
-    bucket += std::min((int)pos, number_buckets - 1);
-
-    return bucket;
-}
-
 void MultiHeadAttention::compute_relative_position_bias(
     Tensor &bias, int query_len, int key_len)
 {
@@ -73,23 +40,15 @@ void MultiHeadAttention::compute_relative_position_bias(
         return;
     }
 
-    for (int head = 0; head < n_heads; ++head)
-    {
-        for (int query = 0; query < query_len; ++query)
-        {
-            for (int key = 0; key < key_len; ++key)
-            {
-
-                int relative_position = key - query;
-                int bucket_idx = relative_position_to_bucket(relative_position);
-
-                int index = head * (query_len * key_len) + query * key_len + key;
-
-                bias.data[index] =
-                    relative_attention_bias.data[bucket_idx * n_heads + head];
-            }
-        }
-    }
+    cuda_compute_relative_position_bias(
+        bias, 
+        relative_attention_bias, 
+        query_len, 
+        key_len, 
+        n_heads,
+        is_decoder,
+        T5Config::num_buckets,
+        T5Config::max_distance);
 }
 std::pair<Tensor, Tensor> MultiHeadAttention::forward(
     const Tensor &hidden_states,
@@ -134,26 +93,22 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
     {
 
         Tensor q_h({seq_len, d_kv});
-        memcpy(
-            q_h.data.data(),                
-            q.data.data() + h * q_head_size,
-            q_head_size * sizeof(float)    
-        );
+        memcpy(q_h.data.data(),
+               q.data.data() + h * q_head_size,
+               q_head_size * sizeof(float));
 
         Tensor k_h({k_len, d_kv});
-        memcpy(
-            k_h.data.data(),
-            k.data.data() + h * k_head_size,
-            k_head_size * sizeof(float));
+        memcpy(k_h.data.data(),
+               k.data.data() + h * k_head_size,
+               k_head_size * sizeof(float));
 
         Tensor v_h({k_len, d_kv});
-        memcpy(
-            v_h.data.data(),
-            v.data.data() + h * k_head_size,
-            k_head_size * sizeof(float));
+        memcpy(v_h.data.data(),
+               v.data.data() + h * k_head_size,
+               k_head_size * sizeof(float));
 
         // Attention(Q,K,V) = Softmax((Q * K^T ) + B)*V
-   
+
         Tensor scores = q_h.matmul(k_h.transpose());
 
         int bias_offset = h * bias_head_size;
@@ -167,13 +122,10 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
 
         Tensor head_out = scores.matmul(v_h);
 
-        memcpy(
-            context_layer.data.data() + h * q_head_size,
-            head_out.data.data(),
-            q_head_size * sizeof(float));
+        memcpy(context_layer.data.data() + h * q_head_size,
+               head_out.data.data(),
+               q_head_size * sizeof(float));
     }
-
-    
 
     // [n_heads, seq, d_kv] -> [seq, n_heads, d_kv] -> [seq, inner_dim]
     context_layer = context_layer.permute({1, 0, 2})

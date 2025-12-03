@@ -4,12 +4,14 @@
 #include <cmath>
 #include <stdexcept>
 
+// CUDA kernel declarations
+extern "C" Tensor cuda_matmul(const Tensor &a, const Tensor &b);
+extern "C" Tensor cuda_softmax(const Tensor &input);
+
 Tensor::Tensor() = default;
 
 Tensor::Tensor(const std::vector<int> &shape_in, float fill_value)
     : shape(shape_in), data(numel(shape_in), fill_value) {}
-
-
 
 int Tensor::numel(const std::vector<int> &shape_in)
 {
@@ -42,7 +44,8 @@ std::vector<int> Tensor::compute_strides(const std::vector<int> &shape_in)
 
     int tmp = 1;
 
-    for (int i = shape_size - 1; i >= 0; --i) {
+    for (int i = shape_size - 1; i >= 0; --i)
+    {
         strides[i] = tmp;
         tmp *= shape_in[i];
     }
@@ -107,58 +110,15 @@ Tensor Tensor::operator+(const Tensor &other) const
 
 Tensor Tensor::softmax() const
 {
-    int row_length = shape[shape.size() - 1];
-
-    int rows_count = size() / row_length;
-
-    Tensor out(shape);
-
-    for (int row = 0; row < rows_count; row++)
-    {
-        int offset = row * row_length;
-
-        float max_val = data[offset];
-        for (int i = 0; i < row_length; i++)
-            max_val = std::max(max_val, data[i+offset]);
-
-        float sum = 0.0f;
-        for (int i = 0; i < row_length; i++)
-        {
-            out.data[offset + i] = std::exp(data[i+offset] - max_val);
-            sum += out.data[offset + i];
-        }
-        
-        for (int i = 0; i < row_length; i++)
-            out.data[i+offset] /= sum;
-    }
-
-    return out;
+    return cuda_softmax(*this);
 }
-
 
 Tensor Tensor::matmul(const Tensor &other) const
 {
-    if (shape[1]!=other.shape[0])
+    if (shape[1] != other.shape[0])
         throw std::runtime_error("matmul: shape mismatch");
 
-    int m = shape[0];
-    int n = shape[1];
-    int p = other.shape[1];   
-
-    Tensor result({m,p});
-
-    for (int row = 0; row < m; row++)
-        for (int col = 0; col < p; col++)
-        {
-            float sum = 0.f;
-
-            for (int i = 0; i < n; i++)
-                sum += data[row * n + i] * other.data[i * p + col];
-
-            result.data[row * p + col] = sum;
-        }
-
-    return result;
+    return cuda_matmul(*this, other);
 }
 
 namespace activation

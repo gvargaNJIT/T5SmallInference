@@ -44,7 +44,7 @@ Embedding::Embedding(int num_emb, int emb_dim)
 
 Tensor Embedding::forward(const Tensor& indices) {
     int seq_len = indices.shape[0];
-    DBG(0, "seq_len=%d embedding_dim=%d", seq_len, embedding_dim);
+    //DBG(0, "seq_len=%d embedding_dim=%d", seq_len, embedding_dim);
 
     Tensor result({seq_len, embedding_dim});
     int total_output_elements = seq_len * embedding_dim;
@@ -58,7 +58,7 @@ Tensor Embedding::forward(const Tensor& indices) {
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
         return result;
     }
 
@@ -66,18 +66,18 @@ Tensor Embedding::forward(const Tensor& indices) {
     cudaMemcpy(dev_indices, indices.data.data(), seq_len * sizeof(float), cudaMemcpyHostToDevice);
 
     int nblks = (total_output_elements + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    DBG(0, "Launching kernel: %d blocks x %d threads", nblks, THREADS_PER_BLOCK);
+    //DBG(0, "Launching kernel: %d blocks x %d threads", nblks, THREADS_PER_BLOCK);
 
     embedding_lookup_kernel<<<nblks, THREADS_PER_BLOCK>>>(dev_weight, dev_indices, dev_output, seq_len, embedding_dim, num_embeddings);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: Kernel launch failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: Kernel launch failed: %s", cudaGetErrorString(err));
     }
 
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
-        DBG(0, "ERROR: Kernel execution failed: %s", cudaGetErrorString(err));
+        //DBG(0, "ERROR: Kernel execution failed: %s", cudaGetErrorString(err));
     }
 
     cudaMemcpy(result.data.data(), dev_output, total_output_elements * sizeof(float), cudaMemcpyDeviceToHost);
@@ -86,7 +86,7 @@ Tensor Embedding::forward(const Tensor& indices) {
     cudaFree(dev_indices);
     cudaFree(dev_output);
 
-    DBG(0, "Embedding forward complete");
+    //DBG(0, "Embedding forward complete");
 
     return result;
 }

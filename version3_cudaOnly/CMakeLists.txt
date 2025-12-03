@@ -9,8 +9,9 @@ find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CUDA_ARCHITECTURES 50)
 
-file(GLOB CPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-file(GLOB CU_SOURCES  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu")
+file(GLOB_RECURSE CPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+
+file(GLOB_RECURSE CU_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu")
 
 add_executable(t5_cuda
     main.cpp
