@@ -24,12 +24,12 @@ target_include_directories(t5_tensor PUBLIC
 # (adjust the filenames if your MPI backend has more files)
 # ----------------------------------------------------
 add_library(version2_mpi STATIC
-    ${CMAKE_SOURCE_DIR}/version2_mpi/src/tensor.cpp
+    ${CMAKE_SOURCE_DIR}/version2_mpiOnly/src/tensor.cpp
 )
 
 target_include_directories(version2_mpi PUBLIC
     ${CMAKE_SOURCE_DIR}/common/include
-    ${CMAKE_SOURCE_DIR}/version2_mpi/include
+    ${CMAKE_SOURCE_DIR}/version2_mpiOnly/include
 )
 
 target_link_libraries(version2_mpi  PUBLIC MPI::MPI_CXX)

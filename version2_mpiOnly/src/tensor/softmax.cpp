@@ -7,7 +7,7 @@
 #define ROOT 0
 
 
-Tensor softmax(Tensor &x) 
+Tensor Tensor::softmax() const
 {
     MPI_Comm world = MPI_COMM_WORLD;
 
@@ -15,8 +15,8 @@ Tensor softmax(Tensor &x)
     MPI_Comm_rank(world, &my_rank);
     MPI_Comm_size(world, &num_procs);
 
-    int row_length = x.shape.back();
-    int rows_count = x.size() / row_length;
+    int row_length = shape.back();
+    int rows_count = size() / row_length;
 
     int base_work = rows_count / num_procs;
     int my_work;
@@ -42,16 +42,16 @@ Tensor softmax(Tensor &x)
         int offset = row * row_length;
         int global_offset = (start_row + row) * row_length;
 
-        float max_val = x.data[global_offset];
+        float max_val = data[global_offset];
         for (int i = 0; i < row_length; i++)
         {
-            max_val = std::max(max_val, x.data[global_offset + i]);
+            max_val = std::max(max_val, data[global_offset + i]);
         }
 
         float sum = 0.f;
         for (int i = 0; i < row_length; i++)
         {
-            local_out.data[offset + i] = std::exp(x.data[global_offset + i] - max_val);
+            local_out.data[offset + i] = std::exp(data[global_offset + i] - max_val);
             sum += local_out.data[offset + i];
         }
 
@@ -61,7 +61,7 @@ Tensor softmax(Tensor &x)
         }
     }
 
-    Tensor out(x.shape);
+    Tensor out(shape);
 
     std::vector<int> recvcounts(num_procs);
     std::vector<int> displs(num_procs);
@@ -81,7 +81,7 @@ Tensor softmax(Tensor &x)
     MPI_Gatherv(local_out.data.data(), my_work * row_length, MPI_FLOAT,
                 out.data.data(), recvcounts.data(), displs.data(), MPI_FLOAT, ROOT, world);
 
-    MPI_Bcast(out.data.data(), x.size(), MPI_FLOAT, ROOT, world);
+    MPI_Bcast(out.data.data(), size(), MPI_FLOAT, ROOT, world);
 
     return out;
 }

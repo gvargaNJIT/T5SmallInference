@@ -6,7 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_subdirectory(common)
 add_subdirectory(version1_plainC)
-add_subdirectory(version2_mpi)
+add_subdirectory(version2_mpiOnly)
+add_subdirectory(version3_cudaOnly)
+add_subdirectory(version4_mpi_cuda)
 add_subdirectory(tests)
 add_subdirectory(testing)
 

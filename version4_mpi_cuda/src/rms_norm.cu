@@ -1,17 +1,11 @@
 #include "rms_norm.hpp"
-
 #include <cuda_runtime.h>
-#include <cuda_profiler_api.h>
-
 #include <mpi.h>
-
 #include <cmath>
 #include <vector>
-#include <algorithm>
+#include <cstdio>
 
-#define THREADS_PER_BLOCK 1024
-#define COLOR 1<<10
-#define MAXDIM 1<<12
+#define THREADS_PER_BLOCK 256
 #define ROOT 0
 
 #define DBG(rank, ...) \
@@ -22,173 +16,172 @@
         fflush(stdout); \
     } while(0)
 
-#define DBG_DEVICE(...) \
-    do { \
-        printf("[DEVICE blockIdx=(%d,%d) threadIdx=(%d,%d)] ", \
-               blockIdx.x, blockIdx.y, threadIdx.x, threadIdx.y); \
-        printf(__VA_ARGS__); \
-        printf("\n"); \
-    } while(0)
-
 __global__ void rmsnorm_kernel(
     const float* x,
     const float* weight,
     float* out,
-    int batch_size,
+    int local_seq_len,
     int hidden_size,
     float eps
 ) {
     int bid = blockIdx.x;
     int tid = threadIdx.x;
 
-    if (bid == 0 && tid == 0) {
-        DBG_DEVICE("Starting rmsnorm: batch_size=%d hidden_size=%d", batch_size, hidden_size);
-    }
+    extern __shared__ float sdata[];
+    float my_acc = 0.0f;
 
-    __shared__ float sdata[THREADS_PER_BLOCK];
-    sdata[tid] = 0.0f;
     for (int h = tid; h < hidden_size; h += blockDim.x) {
         float val = x[bid * hidden_size + h];
-        sdata[tid] += val * val;
+        my_acc += val * val;
+    }
+
+    sdata[tid] = my_acc;
+    __syncthreads();
+
+    for (int offset = blockDim.x / 2; offset > 0; offset /= 2) {
+        if (tid < offset) sdata[tid] += sdata[tid + offset];
+        __syncthreads();
+    }
+
+    float inv_rms = 0.0f;
+    if (tid == 0) {
+        float sum_sq = sdata[0];
+        inv_rms = rsqrtf(sum_sq / hidden_size + eps);
+        sdata[0] = inv_rms;
     }
     __syncthreads();
 
-    __shared__ float shared_inv_rms;
-    if (tid == 0) {
-        float sum_sq = 0.0f;
-        for (int i = 0; i < min(hidden_size, blockDim.x); i++)
-            sum_sq += sdata[i];
-        shared_inv_rms = rsqrtf(sum_sq / hidden_size + eps);
-        if (bid == 0) {
-            DBG_DEVICE("Block %d: sum_sq=%f inv_rms=%f", bid, sum_sq, shared_inv_rms);
-        }
-    }
-    __syncthreads();
-    
+    inv_rms = sdata[0];
+
     for (int h = tid; h < hidden_size; h += blockDim.x) {
-        out[bid * hidden_size + h] = x[bid * hidden_size + h] * shared_inv_rms * weight[h];
-        if (bid == 0 && h < 3) {
-            DBG_DEVICE("out[%d][%d] = %f", bid, h, out[bid * hidden_size + h]);
-        }
+        out[bid * hidden_size + h] =
+            x[bid * hidden_size + h] * inv_rms * weight[h];
     }
 }
 
 RMSNorm::RMSNorm(int hidden_size, float epsilon)
     : eps(epsilon) {
-    weight = Tensor::ones({hidden_size});
+    weight = Tensor({hidden_size}, 1.0f);
 }
 
-Tensor RMSNorm::forward(const Tensor& input) {
-    MPI_Comm world = MPI_COMM_WORLD;
-    int my_rank, num_procs;
-    MPI_Comm_rank(world, &my_rank);
-    MPI_Comm_size(world, &num_procs);
+Tensor RMSNorm::forward(const Tensor& x) {
+    int rank, num_procs;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
 
-    int batch = input.shape[0];
-    int seq_len = input.shape[1];
-    int hidden_dim = input.shape[2];
+    int seq_len = x.shape[0];
+    int hidden_size = x.shape[1];
 
-    if (my_rank == ROOT) {
-        DBG(my_rank, "RMSNorm input shape = (%d, %d, %d) num_procs=%d", batch, seq_len, hidden_dim, num_procs);
-    }
+    DBG(rank, "seq_len=%d hidden_size=%d", seq_len, hidden_size);
 
-    int my_work = (batch + num_procs - 1) / num_procs;
-    int start_idx = std::min(my_rank * my_work, batch);
-    int end_idx = std::min(start_idx + my_work, batch);
-    int n_local = end_idx - start_idx;
+    Tensor x_bcast = x;
+    MPI_Bcast(x_bcast.data.data(), seq_len * hidden_size, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 
-    std::vector<int> elms_to_comm(num_procs), offset_s(num_procs);
-    int scatter_elms = n_local * seq_len * hidden_dim;
-    
-    DBG(my_rank, "start_idx=%d end_idx=%d n_local=%d scatter_elms=%d",start_idx, end_idx, n_local, scatter_elms);
+    MPI_Bcast(weight.data.data(), hidden_size, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 
-    for (int i = 0; i < num_procs; i++) {
-        int proc_start = std::min(i * my_work, batch);
-        int proc_end = std::min(proc_start + my_work, batch);
-        elms_to_comm[i] = (proc_end - proc_start) * seq_len * hidden_dim;
-        offset_s[i] = proc_start * seq_len * hidden_dim;
-    }
+    int base  = seq_len / num_procs;
+    int extra = seq_len % num_procs;
+    int local_seq_len = base + (rank < extra ? 1 : 0);
+    int start = rank * base + std::min(rank, extra);
 
-    Tensor local_input({n_local, seq_len, hidden_dim});
-    float *send_buf = nullptr;
-    if (my_rank == ROOT) {
-        send_buf = const_cast<float*>(input.data.data());
-    }
+    DBG(rank, "start=%d local_seq_len=%d", start, local_seq_len);
 
-    DBG(my_rank, "Scatter: elms_to_comm[rank]=%d offset_s[rank]=%d",elms_to_comm[my_rank], offset_s[my_rank]);
+    Tensor local_result({local_seq_len, hidden_size});
 
-    MPI_Scatterv(send_buf, elms_to_comm.data(), offset_s.data(), MPI_FLOAT,local_input.data.data(), scatter_elms, MPI_FLOAT, ROOT, world);
+    if (local_seq_len > 0) {
+        int total_elements = local_seq_len * hidden_size;
+        float *dev_input = nullptr, *dev_weight = nullptr, *dev_output = nullptr;
 
-    if (n_local > 0) {
-        DBG(my_rank, "After Scatter: local_input first element = %f", local_input.data[0]);
-    }
-
-    Tensor local_output({n_local, seq_len, hidden_dim});
-
-    if (n_local > 0) {
-        int cuda_batch_size = n_local * seq_len;
-        int total_elements = cuda_batch_size * hidden_dim;
-        float *dev_input, *dev_weight, *dev_output;
-
-        DBG(my_rank, "Allocating CUDA memory: %d elements for input/output, %d for weights",total_elements, hidden_dim);
-
-        cudaMalloc(&dev_input, total_elements * sizeof(float));
-        cudaMalloc(&dev_weight, hidden_dim * sizeof(float));
-        cudaMalloc(&dev_output, total_elements * sizeof(float));
-
-        cudaError_t err = cudaGetLastError();
+        cudaError_t err;
+        err = cudaMalloc(&dev_input, total_elements * sizeof(float));
         if (err != cudaSuccess) {
-            DBG(my_rank, "ERROR: cudaMalloc failed: %s", cudaGetErrorString(err));
-            return local_output;
+            DBG(rank, "cudaMalloc dev_input failed: %s", cudaGetErrorString(err));
+            return local_result;
         }
 
-        cudaMemcpy(dev_input, local_input.data.data(), total_elements * sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(dev_weight, weight.data.data(), hidden_dim * sizeof(float), cudaMemcpyHostToDevice);
+        err = cudaMalloc(&dev_weight, hidden_size * sizeof(float));
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMalloc dev_weight failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_input);
+            return local_result;
+        }
 
-        int nblks = cuda_batch_size;
-        int nthds = THREADS_PER_BLOCK;
+        err = cudaMalloc(&dev_output, total_elements * sizeof(float));
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMalloc dev_output failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_input); cudaFree(dev_weight);
+            return local_result;
+        }
 
-        DBG(my_rank, "Launching kernel: %d blocks x %d threads (cuda_batch_size=%d)",nblks, nthds, cuda_batch_size);
+        const float* src_ptr = x_bcast.data.data() + (size_t)start * hidden_size;
+        err = cudaMemcpy(dev_input, src_ptr, total_elements * sizeof(float), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMemcpy dev_input failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_input); cudaFree(dev_weight); cudaFree(dev_output);
+            return local_result;
+        }
 
-        rmsnorm_kernel<<<nblks, nthds>>>(dev_input, dev_weight, dev_output,cuda_batch_size, hidden_dim, eps);
+        err = cudaMemcpy(dev_weight, weight.data.data(), hidden_size * sizeof(float), cudaMemcpyHostToDevice);
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMemcpy dev_weight failed: %s", cudaGetErrorString(err));
+            cudaFree(dev_input); cudaFree(dev_weight); cudaFree(dev_output);
+            return local_result;
+        }
+
+        int nblks = local_seq_len;
+        DBG(rank, "Launching kernel: %d blocks x %d threads", nblks, THREADS_PER_BLOCK);
+
+        size_t shared_bytes = THREADS_PER_BLOCK * sizeof(float);
+        rmsnorm_kernel<<<nblks, THREADS_PER_BLOCK, shared_bytes>>>(dev_input, dev_weight, dev_output, local_seq_len, hidden_size, eps);
 
         err = cudaGetLastError();
         if (err != cudaSuccess) {
-            DBG(my_rank, "ERROR: RMSNorm Kernel launch failed: %s", 
-                cudaGetErrorString(err));
+            DBG(rank, "Kernel launch error: %s", cudaGetErrorString(err));
         }
 
         err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
-            DBG(my_rank, "ERROR: RMSNorm Kernel execution failed: %s", cudaGetErrorString(err));
+            DBG(rank, "Kernel execution error: %s", cudaGetErrorString(err));
         }
 
-        DBG(my_rank, "Kernel complete, copying back to host");
-
-        cudaMemcpy(local_output.data.data(), dev_output, total_elements * sizeof(float), cudaMemcpyDeviceToHost);
+        err = cudaMemcpy(local_result.data.data(), dev_output, total_elements * sizeof(float), cudaMemcpyDeviceToHost);
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMemcpy dev_output->host failed: %s", cudaGetErrorString(err));
+        }
 
         cudaFree(dev_input);
         cudaFree(dev_weight);
         cudaFree(dev_output);
 
-        DBG(my_rank, "Local CUDA RMSNorm complete");
+        DBG(rank, "Local CUDA done");
+    } else {
+        DBG(rank, "No local rows assigned (local_seq_len==0)");
+    }
+
+    std::vector<int> counts(num_procs), displs(num_procs);
+    {
+        int pos = 0;
+        for (int r = 0; r < num_procs; ++r) {
+            int r_len = base + (r < extra ? 1 : 0);
+            counts[r] = r_len * hidden_size;
+            displs[r] = pos * hidden_size;
+            if (rank == ROOT) {
+                printf("[ROOT] gather r=%d r_len=%d displ=%d\n", r, r_len, displs[r]);
+            }
+            pos += r_len;
+        }
     }
 
     Tensor result;
-    if (my_rank == ROOT) {
-        result = Tensor({batch, seq_len, hidden_dim});
+    float* recvbuf = nullptr;
+    if (rank == ROOT) {
+        result = Tensor({seq_len, hidden_size});
+        recvbuf = result.data.data();
     }
 
-    float *recv_buf = nullptr;
-    if (my_rank == ROOT) {
-        recv_buf = result.data.data();
-    }
+    MPI_Gatherv(local_result.data.data(), local_seq_len * hidden_size, MPI_FLOAT, recvbuf, counts.data(), displs.data(), MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 
-    DBG(my_rank, "Gather: send_count=%zu recv_offset=%d",local_output.data.size(), offset_s[my_rank]);
-
-    MPI_Gatherv(local_output.data.data(), local_output.data.size(), MPI_FLOAT,recv_buf, elms_to_comm.data(), offset_s.data(), MPI_FLOAT,ROOT, world);
-
-    DBG(my_rank, "After Gather - RMSNorm forward complete");
+    DBG(rank, "After Gatherv - complete");
 
     return result;
 }
