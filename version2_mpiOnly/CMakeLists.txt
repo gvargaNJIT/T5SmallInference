@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 
 message(STATUS "Configuring version2_mpiOnly (MPI) targets")
 

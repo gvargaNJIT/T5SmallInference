@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.24)
 
 if(EXISTS /usr/bin/gcc-14)
     set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
