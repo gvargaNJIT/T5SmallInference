@@ -1,4 +1,3 @@
-// matmul.cpp
 #include <mpi.h>
 #include <vector>
 #include <stdexcept>
@@ -6,7 +5,6 @@
 
 #define ROOT 0
 
-// Forward declare the CUDA function with correct signature
 extern "C" Tensor matmul_cuda(const Tensor &a, const Tensor &b);
 
 Tensor Tensor::matmul(const Tensor &other) const
@@ -24,14 +22,12 @@ Tensor Tensor::matmul(const Tensor &other) const
     int n = shape[1];
     int p = other.shape[1];
 
-    // Use consistent work distribution
     int base_work = m / num_procs;
     int extra = m % num_procs;
     
     int my_work = base_work + (my_rank < extra ? 1 : 0);
     int start_row = my_rank * base_work + std::min(my_rank, extra);
 
-    // Extract this rank's rows
     Tensor my_rows({my_work, n});
     if (my_work > 0) {
         for (int i = 0; i < my_work; i++) {
@@ -41,14 +37,12 @@ Tensor Tensor::matmul(const Tensor &other) const
         }
     }
 
-    // Use CUDA to compute this rank's portion
     Tensor C_local({my_work, p});
     
     if (my_work > 0) {
         C_local = matmul_cuda(my_rows, other);
     }
 
-    // Gather results
     Tensor C({m, p});
 
     std::vector<int> recvcounts(num_procs);

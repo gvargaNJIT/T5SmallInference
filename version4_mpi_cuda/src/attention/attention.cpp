@@ -30,15 +30,12 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
 
     Tensor q = q_proj.forward(hidden_states);
 
-    // key_value_states are used for cross-attention (decoder)
-    // hidden_states are used for self-attention (encoder/decoder)
     const Tensor &kv_in = key_value_states ? *key_value_states : hidden_states;
     Tensor k = k_proj.forward(kv_in);
     Tensor v = v_proj.forward(kv_in);
 
     int k_len = kv_in.shape[0];
 
-    // [Seq, Heads*Dim] -> [Heads, Seq, Dim]
     q = q.reshape({seq_len, n_heads, d_kv}).permute({1, 0, 2});
     k = k.reshape({k_len, n_heads, d_kv}).permute({1, 0, 2});
     v = v.reshape({k_len, n_heads, d_kv}).permute({1, 0, 2});
@@ -55,7 +52,6 @@ std::pair<Tensor, Tensor> MultiHeadAttention::forward(
 
     Tensor context_layer = compute_attention_parallel(q, k, v, bias, n_heads, seq_len, k_len, d_kv);
 
-    // [n_heads, seq, d_kv] -> [seq, n_heads, d_kv] -> [seq, inner_dim]
     context_layer = context_layer.permute({1, 0, 2}).reshape({seq_len, inner_dim});
 
     Tensor output = o_proj.forward(context_layer);

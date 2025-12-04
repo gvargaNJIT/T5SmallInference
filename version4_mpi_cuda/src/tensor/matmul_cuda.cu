@@ -95,9 +95,7 @@ extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b)
     return result;
 }
 
-// Local CUDA-only matmul (no MPI) for use in attention heads
 extern "C" Tensor matmul_local_cuda(const Tensor& a, const Tensor& b)
 {
-    // Just call the same CUDA function - it's already local!
     return matmul_cuda(a, b);
 }

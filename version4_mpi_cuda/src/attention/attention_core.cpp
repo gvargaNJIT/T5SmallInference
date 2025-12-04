@@ -7,7 +7,6 @@
 #include "config.hpp"
 #include "attention_mpi.hpp"
 
-// Declare the local CUDA-only matmul (no MPI distribution)
 extern "C" Tensor matmul_local_cuda(const Tensor& a, const Tensor& b);
 
 static void compute_attention_head(
@@ -34,8 +33,6 @@ static void compute_attention_head(
         v.data.data() + h * k_head_size,
         k_head_size * sizeof(float));
 
-    // Attention(Q,K,V) = Softmax((Q * K^T ) + B)*V
-    // Use local CUDA matmul (NO MPI) since we already distributed heads
     Tensor scores = matmul_local_cuda(q_h, k_h.transpose());
 
     int bias_offset = h * bias_head_size;
