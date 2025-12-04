@@ -136,9 +136,9 @@ Tensor RMSNorm::forward(const Tensor& x) {
         rmsnorm_kernel<<<nblks, THREADS_PER_BLOCK, shared_bytes>>>(dev_input, dev_weight, dev_output, local_seq_len, hidden_size, eps);
 
         err = cudaGetLastError();
-        // if (err != cudaSuccess) {
-        //     DBG(rank, "Kernel launch error: %s", cudaGetErrorString(err));
-        // }
+        if (err != cudaSuccess) {
+            DBG(rank, "Kernel launch error: %s", cudaGetErrorString(err));
+        }
 
         err = cudaDeviceSynchronize();
         // if (err != cudaSuccess) {
