@@ -1,19 +1,13 @@
 cmake_minimum_required(VERSION 3.18)
 
-if(EXISTS /usr/bin/gcc-14)
-    set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
-endif()
+set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
 
 project(t5_mpicuda LANGUAGES CXX CUDA)
 
 find_package(MPI REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
-if(NOT CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES "50;75;80;86")
-endif()
-
-
+set(CMAKE_CUDA_ARCHITECTURES 50)
 
 file(GLOB_RECURSE CPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 file(GLOB_RECURSE CU_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cu")
@@ -35,7 +29,6 @@ target_link_libraries(t5_mpicuda
     CUDA::cudart
     t5_common
 )
-
 
 set_target_properties(t5_mpicuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON

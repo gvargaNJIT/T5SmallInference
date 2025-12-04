@@ -1,3 +1,4 @@
+// matmul.cpp
 #include <mpi.h>
 #include <vector>
 #include <stdexcept>
@@ -5,7 +6,8 @@
 
 #define ROOT 0
 
-extern "C" Tensor matmul_cuda(const Tensor &a, const Tensor &b,int my_work);
+// Forward declare the CUDA function with correct signature
+extern "C" Tensor matmul_cuda(const Tensor &a, const Tensor &b);
 
 Tensor Tensor::matmul(const Tensor &other) const
 {
@@ -22,53 +24,43 @@ Tensor Tensor::matmul(const Tensor &other) const
     int n = shape[1];
     int p = other.shape[1];
 
+    // Use consistent work distribution
     int base_work = m / num_procs;
-    int my_work;
-    int start_row, end_row;
+    int extra = m % num_procs;
+    
+    int my_work = base_work + (my_rank < extra ? 1 : 0);
+    int start_row = my_rank * base_work + std::min(my_rank, extra);
 
-    if (my_rank == num_procs - 1)
-    {
-        my_work = base_work + (m % num_procs);
-        start_row = base_work * my_rank;
-        end_row = m;
-    }
-    else
-    {
-        my_work = base_work;
-        start_row = base_work * my_rank;
-        end_row = base_work * (my_rank + 1);
-    }
-
-    Tensor C_local = matmul_cuda(*this, other,my_work);;
-
-    for (int row = 0; row < my_work; row++)
-    {
-        for (int col = 0; col < p; col++)
-        {
-            float sum = 0.f;
-            for (int k = 0; k < n; k++)
-            {
-                sum += data[(start_row + row) * n + k] * other.data[k * p + col];
+    // Extract this rank's rows
+    Tensor my_rows({my_work, n});
+    if (my_work > 0) {
+        for (int i = 0; i < my_work; i++) {
+            for (int j = 0; j < n; j++) {
+                my_rows.data[i * n + j] = data[(start_row + i) * n + j];
             }
-            C_local.data[row * p + col] = sum;
         }
     }
 
+    // Use CUDA to compute this rank's portion
+    Tensor C_local({my_work, p});
+    
+    if (my_work > 0) {
+        C_local = matmul_cuda(my_rows, other);
+    }
+
+    // Gather results
     Tensor C({m, p});
 
     std::vector<int> recvcounts(num_procs);
     std::vector<int> displs(num_procs);
 
-    if (my_rank == ROOT)
+    int pos = 0;
+    for (int r = 0; r < num_procs; r++)
     {
-        for (int r = 0; r < num_procs; r++)
-        {
-            int rank_work = base_work;
-            if (r == num_procs - 1)
-                rank_work = base_work + (m % num_procs);
-            recvcounts[r] = rank_work * p;
-            displs[r] = (base_work * r) * p;
-        }
+        int rank_work = base_work + (r < extra ? 1 : 0);
+        recvcounts[r] = rank_work * p;
+        displs[r] = pos * p;
+        pos += rank_work;
     }
 
     MPI_Gatherv(C_local.data.data(), my_work * p, MPI_FLOAT,

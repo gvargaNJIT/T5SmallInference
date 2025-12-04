@@ -1,3 +1,4 @@
+// matmul.cu
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <stdexcept>
@@ -5,7 +6,7 @@
 
 #define MAX_TILE_WIDTH 32
 
-__global__ void mat_mult_kernel(int m, int n, int p, const float *d_a, const float *d_b, float *d_c, int tile_width,int my_work)
+__global__ void mat_mult_kernel(int m, int n, int p, const float *d_a, const float *d_b, float *d_c, int tile_width)
 {
     __shared__ float a_shared[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
     __shared__ float b_shared[MAX_TILE_WIDTH][MAX_TILE_WIDTH];
@@ -25,7 +26,7 @@ __global__ void mat_mult_kernel(int m, int n, int p, const float *d_a, const flo
         int a_col = phase * tile_width + tx;
         int b_row = phase * tile_width + ty;
 
-        if (row<my_work && row < m && a_col < n)
+        if (row < m && a_col < n)
         {
             a_shared[ty][tx] = d_a[row * n + a_col];
         }
@@ -58,19 +59,18 @@ __global__ void mat_mult_kernel(int m, int n, int p, const float *d_a, const flo
     }
 }
 
-extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b,int my_work)
+extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b)
 {
-
     int m = a.shape[0];
     int n = a.shape[1];
     int p = b.shape[1];
 
-    Tensor result({my_work, p});
+    Tensor result({m, p});
 
     float *d_a, *d_b, *d_c;
     size_t size_a = m * n * sizeof(float);
     size_t size_b = n * p * sizeof(float);
-    size_t size_c = my_work * p * sizeof(float);
+    size_t size_c = m * p * sizeof(float);
 
     cudaMalloc(&d_a, size_a);
     cudaMalloc(&d_b, size_b);
@@ -84,7 +84,7 @@ extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b,int my_work)
     dim3 numBlocks((p + tile_width - 1) / tile_width,
                    (m + tile_width - 1) / tile_width);
 
-    mat_mult_kernel<<<numBlocks, threadsPerBlock>>>(m, n, p, d_a, d_b, d_c, tile_width,my_work);
+    mat_mult_kernel<<<numBlocks, threadsPerBlock>>>(m, n, p, d_a, d_b, d_c, tile_width);
 
     cudaMemcpy(result.data.data(), d_c, size_c, cudaMemcpyDeviceToHost);
 
@@ -93,4 +93,11 @@ extern "C" Tensor matmul_cuda(const Tensor& a, const Tensor& b,int my_work)
     cudaFree(d_c);
 
     return result;
+}
+
+// Local CUDA-only matmul (no MPI) for use in attention heads
+extern "C" Tensor matmul_local_cuda(const Tensor& a, const Tensor& b)
+{
+    // Just call the same CUDA function - it's already local!
+    return matmul_cuda(a, b);
 }
