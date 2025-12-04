@@ -50,9 +50,9 @@ Tensor Embedding::forward(const Tensor& indices) {
     MPI_Comm_size(world, &num_procs);
 
     int seq_len = indices.shape[0];
-    DBG(rank, "seq_len=%d num_procs=%d", seq_len, num_procs);
+    // DBG(rank, "seq_len=%d num_procs=%d", seq_len, num_procs);
 
-    MPI_Bcast(weight.data.data(), num_embeddings * embedding_dim, MPI_FLOAT, ROOT, world);
+    // MPI_Bcast(weight.data.data(), num_embeddings * embedding_dim, MPI_FLOAT, ROOT, world);
 
     int base  = seq_len / num_procs;
     int extra = seq_len % num_procs;
@@ -60,7 +60,7 @@ Tensor Embedding::forward(const Tensor& indices) {
     int local_len = base + (rank < extra ? 1 : 0);
     int start = rank * base + std::min(rank, extra);
 
-    DBG(rank, "start=%d local_len=%d", start, local_len);
+    // DBG(rank, "start=%d local_len=%d", start, local_len);
 
     std::vector<float> local_idx(local_len);
     for (int i = 0; i < local_len; i++)
@@ -99,24 +99,21 @@ Tensor Embedding::forward(const Tensor& indices) {
             counts[r] = r_len * embedding_dim;
             displs[r] = pos * embedding_dim;
 
-            if (rank == ROOT)
-                printf("[ROOT] gather r=%d r_len=%d displ=%d\n",
-                       r, r_len, displs[r]);
+            // if (rank == ROOT)
+            //     printf("[ROOT] gather r=%d r_len=%d displ=%d\n",
+            //            r, r_len, displs[r]);
             pos += r_len;
         }
     }
 
-    Tensor result;
-    float* recvbuf = nullptr;
+    Tensor result({seq_len, embedding_dim});
 
-    if (rank == ROOT) {
-        result = Tensor({seq_len, embedding_dim});
-        recvbuf = result.data.data();
-    }
+    MPI_Gatherv(local_out.data.data(), local_len * embedding_dim, MPI_FLOAT, 
+                result.data.data(), counts.data(), displs.data(), MPI_FLOAT, ROOT, world);
 
-    MPI_Gatherv(local_out.data.data(), local_len * embedding_dim, MPI_FLOAT, recvbuf, counts.data(), displs.data(), MPI_FLOAT, ROOT, world);
+    MPI_Bcast(result.data.data(), result.size(), MPI_FLOAT, ROOT, world);
 
-    DBG(rank, "After Gatherv");
+    // DBG(rank, "After Gatherv");
 
     return result;
 }
