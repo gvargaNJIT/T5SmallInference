@@ -24,35 +24,29 @@ Tensor Tensor::matmul(const Tensor &other) const
 
     int base_work = m / num_procs;
     int my_work;
-    int start_row, end_row;
+    int start_row;
 
     if (my_rank == num_procs - 1)
     {
         my_work = base_work + (m % num_procs);
         start_row = base_work * my_rank;
-        end_row = m;
     }
     else
     {
         my_work = base_work;
         start_row = base_work * my_rank;
-        end_row = base_work * (my_rank + 1);
     }
 
-    Tensor C_local = matmul_cuda(*this, other,my_work);;
-
-    for (int row = 0; row < my_work; row++)
+    Tensor a_local({my_work, n});
+    for (int i = 0; i < my_work; i++)
     {
-        for (int col = 0; col < p; col++)
+        for (int j = 0; j < n; j++)
         {
-            float sum = 0.f;
-            for (int k = 0; k < n; k++)
-            {
-                sum += data[(start_row + row) * n + k] * other.data[k * p + col];
-            }
-            C_local.data[row * p + col] = sum;
+            a_local.data[i * n + j] = data[(start_row + i) * n + j];
         }
     }
+
+    Tensor C_local = matmul_cuda(a_local, other, my_work);
 
     Tensor C({m, p});
 

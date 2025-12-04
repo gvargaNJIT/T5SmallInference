@@ -35,7 +35,7 @@ static void compute_attention_head(
 
     // Attention(Q,K,V) = Softmax((Q * K^T ) + B)*V
    
-    Tensor scores = matmul_cuda(q_h, k_h.transpose(),q_h.shape[0]);
+    Tensor scores = matmul_cuda(q_h, k_h.transpose(), seq_len);
 
     int bias_offset = h * bias_head_size;
 
@@ -46,7 +46,7 @@ static void compute_attention_head(
 
     scores = scores.softmax();
 
-    Tensor head_out = matmul_cuda(scores, v_h,scores.shape[0]);
+    Tensor head_out = matmul_cuda(scores, v_h, k_len);
 
     memcpy(output_ptr, head_out.data.data(), q_head_size * sizeof(float));
 }
