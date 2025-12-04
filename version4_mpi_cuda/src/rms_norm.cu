@@ -95,10 +95,10 @@ Tensor RMSNorm::forward(const Tensor& x) {
 
         cudaError_t err;
         err = cudaMalloc(&dev_input, total_elements * sizeof(float));
-        // if (err != cudaSuccess) {
-            // DBG(rank, "cudaMalloc dev_input failed: %s", cudaGetErrorString(err));
-        //     return local_result;
-        // }
+        if (err != cudaSuccess) {
+            DBG(rank, "cudaMalloc dev_input failed: %s", cudaGetErrorString(err));
+            return local_result;
+        }
 
         err = cudaMalloc(&dev_weight, hidden_size * sizeof(float));
         // if (err != cudaSuccess) {
@@ -134,11 +134,6 @@ Tensor RMSNorm::forward(const Tensor& x) {
 
         size_t shared_bytes = THREADS_PER_BLOCK * sizeof(float);
         rmsnorm_kernel<<<nblks, THREADS_PER_BLOCK, shared_bytes>>>(dev_input, dev_weight, dev_output, local_seq_len, hidden_size, eps);
-
-        err = cudaGetLastError();
-        if (err != cudaSuccess) {
-            DBG(rank, "Kernel launch error: %s", cudaGetErrorString(err));
-        }
 
         err = cudaDeviceSynchronize();
         // if (err != cudaSuccess) {
