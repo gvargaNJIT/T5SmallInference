@@ -9,10 +9,7 @@ project(t5_mpicuda LANGUAGES CXX CUDA)
 find_package(MPI REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
-if(NOT CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES "50;75;80;86")
-endif()
-
+set(CMAKE_CUDA_ARCHITECTURES "native")
 
 
 file(GLOB_RECURSE CPP_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
