@@ -1,4 +1,4 @@
-make_minimum_required(VERSION 3.18)
+cmake_minimum_required(VERSION 3.18)
 
 set(CMAKE_CUDA_HOST_COMPILER /usr/bin/gcc-14)
 
@@ -24,7 +24,6 @@ target_include_directories(t5_cuda PRIVATE
 )
 
 target_link_libraries(t5_cuda
-    MPI::MPI_CXX
     CUDA::cudart
     t5_common
 )
