@@ -10,6 +10,5 @@ add_subdirectory(version2_mpiOnly)
 add_subdirectory(version3_cudaOnly)
 add_subdirectory(version4_mpi_cuda)
 
-# add_subdirectory(testing)
 
 
