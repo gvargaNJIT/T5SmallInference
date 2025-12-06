@@ -15,13 +15,13 @@ int main(int argc, char **argv)
         SPTokenizer tokenizer("spiece.model");
 
         std::string input_text = "translate English to German: Hello world.";
-        std::cout << "Input: " << input_text << std::endl;
 
         if (argc > 1)
         {
             input_text = argv[1];
         }
 
+        std::cout << "Input: " << input_text << std::endl;
         std::vector<int> input_ids = tokenizer.encode(input_text, true);
         Tensor input({static_cast<int>(input_ids.size())});
         for (size_t i = 0; i < input_ids.size(); i++)
