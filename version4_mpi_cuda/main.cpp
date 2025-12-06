@@ -23,6 +23,11 @@ int main(int argc, char** argv) {
         if (rank == 0) {
             SPTokenizer tokenizer("spiece.model");
             std::string input_text = "translate English to German: Hello world.";
+    
+            if (argc > 1) {
+                input_text = argv[1];
+            }
+            
             std::cout << "Input: " << input_text << std::endl;
             input_ids = tokenizer.encode(input_text, true);
             input_size = input_ids.size();

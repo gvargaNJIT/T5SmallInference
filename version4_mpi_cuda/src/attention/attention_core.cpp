@@ -100,8 +100,7 @@ Tensor compute_attention_parallel(
         }
     }
 
-    MPI_Gatherv(
-        local_context.data.data(), my_total_size, MPI_FLOAT,
+    MPI_Gatherv(local_context.data.data(), my_total_size, MPI_FLOAT,
         context_layer.data.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
         0, world);
 
