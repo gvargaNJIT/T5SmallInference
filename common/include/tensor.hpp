@@ -26,9 +26,6 @@ public:
     Tensor matmul(const Tensor& other) const;
 
     Tensor operator+(const Tensor& other) const;
-
-private:
-    static std::vector<int> compute_strides(const std::vector<int>& shape_in);
 };
 
 namespace activation {

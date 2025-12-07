@@ -38,66 +38,6 @@ Tensor Tensor::reshape(const std::vector<int> &new_shape) const
     return tmp;
 }
 
-std::vector<int> Tensor::compute_strides(const std::vector<int> &shape_in)
-{
-
-    int shape_size = shape_in.size();
-    std::vector<int> strides(shape_size);
-
-    int tmp = 1;
-
-    for (int i = shape_size - 1; i >= 0; --i)
-    {
-        strides[i] = tmp;
-        tmp *= shape_in[i];
-    }
-
-    return strides;
-}
-
-Tensor Tensor::permute(const std::vector<int> &new_axis_order) const
-{
-    if (new_axis_order.size() != shape.size())
-        throw std::runtime_error("permute: wrong dims");
-
-    std::vector<int> permuted_shape(shape.size());
-    for (size_t i = 0; i < new_axis_order.size(); i++)
-        permuted_shape[i] = shape[new_axis_order[i]];
-
-    Tensor output_tensor(permuted_shape, 0.0f);
-
-    auto input_strides = compute_strides(shape);
-    auto output_strides = compute_strides(permuted_shape);
-
-    for (int flat_idx = 0; flat_idx < size(); flat_idx++)
-    {
-        int remaining_idx = flat_idx;
-        std::vector<int> coord(shape.size());
-
-        for (size_t dim = 0; dim < shape.size(); dim++)
-        {
-            coord[dim] = remaining_idx / input_strides[dim];
-            remaining_idx %= input_strides[dim];
-        }
-
-        int output_flat_idx = 0;
-        for (size_t dim = 0; dim < shape.size(); dim++)
-            output_flat_idx += coord[new_axis_order[dim]] * output_strides[dim];
-
-        output_tensor.data[output_flat_idx] = data[flat_idx];
-    }
-
-    return output_tensor;
-}
-
-Tensor Tensor::transpose() const
-{
-    if (shape.size() != 2)
-        throw std::runtime_error("transpose: only 2D supported");
-
-    return permute({1, 0});
-}
-
 Tensor Tensor::operator+(const Tensor &other) const
 {
     if (shape != other.shape)
@@ -109,6 +49,63 @@ Tensor Tensor::operator+(const Tensor &other) const
 
     return output_tensor;
 }
+
+
+Tensor Tensor::permute(const std::vector<int> &axes) const
+{
+    int dims = shape.size();
+    if (axes.size() != dims && dims != 3)
+        throw std::runtime_error("permute: wrong dims and only 3D supported");
+
+    int A = shape[0];
+    int B = shape[1];
+    int C = shape[2];
+
+    int sA = shape[axes[0]];
+    int sB = shape[axes[1]];
+    int sC = shape[axes[2]];
+
+    Tensor out({sA, sB, sC}, 0.f);
+
+    for (int i = 0; i < A; i++)
+    {
+        for (int j = 0; j < B; j++)
+        {
+            for (int k = 0; k < C; k++)
+            {
+                int tmp[3] = {i, j, k};
+                int ai = tmp[axes[0]];
+                int bi = tmp[axes[1]];
+                int ci = tmp[axes[2]];
+
+                int in_flat = i * B * C + j * C + k;
+                int out_flat = ai * (sB * sC) + bi * sC + ci;
+
+                out.data[out_flat] = data[in_flat];
+            }
+        }
+    }
+
+    return out;
+}
+
+Tensor Tensor::transpose() const
+{
+    if (shape.size() != 2)
+        throw std::runtime_error("transpose: only 2D supported");
+
+    int H = shape[0];
+    int W = shape[1];
+
+    Tensor out({W, H}, 0.f);
+
+    for (int i = 0; i < H; i++)
+        for (int j = 0; j < W; j++)
+            out.data[j * H + i] = data[i * W + j];
+
+    return out;
+}
+
 
 Tensor Tensor::softmax() const
 {

@@ -9,8 +9,6 @@ Tensor::Tensor() = default;
 Tensor::Tensor(const std::vector<int> &shape_in, float fill_value)
     : shape(shape_in), data(numel(shape_in), fill_value) {}
 
-
-
 int Tensor::numel(const std::vector<int> &shape_in)
 {
     int total_elements = 1;
@@ -34,55 +32,42 @@ Tensor Tensor::reshape(const std::vector<int> &new_shape) const
     return tmp;
 }
 
-std::vector<int> Tensor::compute_strides(const std::vector<int> &shape_in)
+Tensor Tensor::permute(const std::vector<int> &axes) const
 {
+    int dims = shape.size();
+    if (axes.size() != dims && dims != 3)
+        throw std::runtime_error("permute: wrong dims and only 3D supported");
 
-    int shape_size = shape_in.size();
-    std::vector<int> strides(shape_size);
+    int A = shape[0];
+    int B = shape[1];
+    int C = shape[2];
 
-    int tmp = 1;
+    int sA = shape[axes[0]];
+    int sB = shape[axes[1]];
+    int sC = shape[axes[2]];
 
-    for (int i = shape_size - 1; i >= 0; --i) {
-        strides[i] = tmp;
-        tmp *= shape_in[i];
-    }
+    Tensor out({sA, sB, sC}, 0.f);
 
-    return strides;
-}
-
-Tensor Tensor::permute(const std::vector<int> &new_axis_order) const
-{
-    if (new_axis_order.size() != shape.size())
-        throw std::runtime_error("permute: wrong dims");
-
-    std::vector<int> permuted_shape(shape.size());
-    for (size_t i = 0; i < new_axis_order.size(); i++)
-        permuted_shape[i] = shape[new_axis_order[i]];
-
-    Tensor output_tensor(permuted_shape, 0.0f);
-
-    auto input_strides = compute_strides(shape);
-    auto output_strides = compute_strides(permuted_shape);
-
-    for (int flat_idx = 0; flat_idx < size(); flat_idx++)
+    for (int i = 0; i < A; i++)
     {
-        int remaining_idx = flat_idx;
-        std::vector<int> coord(shape.size());
-
-        for (size_t dim = 0; dim < shape.size(); dim++)
+        for (int j = 0; j < B; j++)
         {
-            coord[dim] = remaining_idx / input_strides[dim];
-            remaining_idx %= input_strides[dim];
+            for (int k = 0; k < C; k++)
+            {
+                int tmp[3] = {i, j, k};
+                int ai = tmp[axes[0]];
+                int bi = tmp[axes[1]];
+                int ci = tmp[axes[2]];
+
+                int in_flat = i * B * C + j * C + k;
+                int out_flat = ai * (sB * sC) + bi * sC + ci;
+
+                out.data[out_flat] = data[in_flat];
+            }
         }
-
-        int output_flat_idx = 0;
-        for (size_t dim = 0; dim < shape.size(); dim++)
-            output_flat_idx += coord[new_axis_order[dim]] * output_strides[dim];
-
-        output_tensor.data[output_flat_idx] = data[flat_idx];
     }
 
-    return output_tensor;
+    return out;
 }
 
 Tensor Tensor::transpose() const
@@ -90,7 +75,16 @@ Tensor Tensor::transpose() const
     if (shape.size() != 2)
         throw std::runtime_error("transpose: only 2D supported");
 
-    return permute({1, 0});
+    int H = shape[0];
+    int W = shape[1];
+
+    Tensor out({W, H}, 0.f);
+
+    for (int i = 0; i < H; i++)
+        for (int j = 0; j < W; j++)
+            out.data[j * H + i] = data[i * W + j];
+
+    return out;
 }
 
 Tensor Tensor::operator+(const Tensor &other) const
@@ -119,33 +113,32 @@ Tensor Tensor::softmax() const
 
         float max_val = data[offset];
         for (int i = 0; i < row_length; i++)
-            max_val = std::max(max_val, data[i+offset]);
+            max_val = std::max(max_val, data[i + offset]);
 
         float sum = 0.0f;
         for (int i = 0; i < row_length; i++)
         {
-            out.data[offset + i] = std::exp(data[i+offset] - max_val);
+            out.data[offset + i] = std::exp(data[i + offset] - max_val);
             sum += out.data[offset + i];
         }
-        
+
         for (int i = 0; i < row_length; i++)
-            out.data[i+offset] /= sum;
+            out.data[i + offset] /= sum;
     }
 
     return out;
 }
 
-
 Tensor Tensor::matmul(const Tensor &other) const
 {
-    if (shape[1]!=other.shape[0])
+    if (shape[1] != other.shape[0])
         throw std::runtime_error("matmul: shape mismatch");
 
     int m = shape[0];
     int n = shape[1];
-    int p = other.shape[1];   
+    int p = other.shape[1];
 
-    Tensor result({m,p});
+    Tensor result({m, p});
 
     for (int row = 0; row < m; row++)
         for (int col = 0; col < p; col++)

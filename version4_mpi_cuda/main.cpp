@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
             input.data[i] = static_cast<float>(input_ids[i]);
         }
 
-        std::vector<int> output_ids = model.generate(input, 8);
+        std::vector<int> output_ids = model.generate(input, 128);
 
         if (rank == 0) {
             SPTokenizer tokenizer("spiece.model");
